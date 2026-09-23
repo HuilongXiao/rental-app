@@ -1,17 +1,28 @@
-from sqlalchemy import text
+from contextlib import asynccontextmanager
 
-from app.db.base import Base
-from app.db.session import engine
+from fastapi import FastAPI
 
-
-def initialize_database() -> None:
-    Base.metadata.create_all(bind=engine)
+from app.db.init_db import check_database_connection, initialize_database
 
 
-def check_database_connection() -> bool:
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialize_database()
+    yield
+
+
+app = FastAPI(title="Rental App API", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "rental-app-api"}
+
+
+@app.get("/api/health/database")
+def database_health() -> dict[str, bool | str]:
+    connected = check_database_connection()
+    return {
+        "status": "ok" if connected else "error",
+        "database": "connected" if connected else "unavailable",
+    }

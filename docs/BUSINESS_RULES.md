@@ -1,26 +1,20 @@
-# BUSINESS_RULES.md
-
 # Rental App — Business Rules
 
-## 1. Purpose and Scope
+## 1. Purpose and authority
 
-This document defines the authoritative business rules for the V1 water-activity equipment rental management system.
+本文档定义 Rental App V1 的权威业务规则。系统是供水上器材租赁业务内部操作员使用的管理系统，主要管理客户、订单、设备目录、运营库存、Check-in、Return 和 Payment。
 
-The system is an internal management tool for operators of a kayak and paddleboard rental business. It is designed for managing customers, orders, equipment, inventory, check-in, return, and payment.
+如果其他项目文档与本文档的业务规则冲突，以本文档为准。本文档不规定具体前端框架、后端框架、ORM 或部署平台。
 
-This document defines business meaning and business constraints. It does not prescribe a specific frontend library, backend implementation, database ORM, or third-party component.
-
-If another project document conflicts with this document, this document takes precedence for business behavior.
+V1 预计供 2–5 名内部操作员使用。V1 通过 Docker 运行在 Synology NAS 上，并需要通过互联网远程访问。远程访问必须使用 HTTPS 和认证保护。
 
 ---
 
-## 2. Core Business Concept: Order
+## 2. Order 是唯一交易概念
 
-### 2.1 Order is the only order concept
+客户的一次租赁交易只有一个业务实体：`Order`。
 
-The system has one business entity for a customer transaction: `Order`.
-
-The following are NOT separate system concepts:
+以下不是独立的 V1 业务实体或订单类型：
 
 - Reservation
 - Walk-in
@@ -28,1064 +22,275 @@ The following are NOT separate system concepts:
 - Walk-in Order
 - Order Type
 
-“Reservation” and “Walk-in” are only natural-language descriptions of different business scenarios.
-
-Examples:
-
-- A customer contacts the business in advance and requests tomorrow at 14:00 → create an Order with `start_at` tomorrow at 14:00.
-- A customer arrives without a prior booking and wants to use equipment now → create an Order with `start_at` set to the current time.
-- A customer makes an advance booking for later today → create an Order.
-- A customer asks in advance for a future time → create an Order.
-
-The system MUST NOT infer an order type from `start_at`.
-
-The system MUST NOT create different processing branches merely because the selected start time is in the past, present, or future.
-
-There is no `order_type`, `reservation_type`, or `walk_in_type`.
+预���和临时到店只是自然语言描述。系统不根据 `start_at` 是过去、现在还是未来来推断订单类型，也不因此建立不同处理流程。
 
 ---
 
 ## 3. User
 
-### 3.1 Purpose
+User 用于识别执行业务变更的操作员。
 
-A User identifies the operator who performs a business-changing action.
+字段包括：`id`、`username`、`display_name`、`password_hash`、`is_active`、`is_system`、`created_at`、`updated_at`。
 
-V1 uses simple username/password authentication.
+规则：
 
-### 3.2 Fields
-
-A User contains:
-
-- `id`
-- `username` — unique
-- `display_name`
-- `password_hash`
-- `is_active`
-- `is_system`
-- `created_at`
-- `updated_at`
-
-### 3.3 Rules
-
-- `username` is unique.
-- Normal users use username/password login.
-- V1 has no role or permission system.
-- All normal users have the same functional permissions.
-- The System User always exists.
-- The System User has `is_system = 1`.
-- The System User cannot be deleted.
-- The System User cannot log in through normal authentication.
-- Automatic business actions are attributed to the System User.
+- `username` 唯一。
+- 正常用户使用用户名和密码登录。
+- 密码只能保存安全 hash，不能保存明文密码。
+- V1 不实现角色和权限矩阵；正常操作员具有相同功能权限。
+- System User 必须存在，`is_system = 1`。
+- System User 不能删除，不能通过普通登录流程登录。
+- 系统自动执行的业务操作使用 System User 作为操作人。
 
 ---
 
 ## 4. Customer
 
-### 4.1 Customer identity fields
+Customer 可以包含：`name`、`gender`、`wechat_nickname`、`wechat_id`、`phone`。
 
-A Customer may contain:
-
-- `name`
-- `gender`
-- `wechat_nickname`
-- `wechat_id`
-- `phone`
-
-### 4.2 Uniqueness
-
-The following are unique when present:
-
-- `phone`
-- `wechat_id`
-
-Name and WeChat nickname are not unique.
-
-### 4.3 Minimum valid Customer
-
-A standalone Customer must satisfy at least one of:
-
-- `name` + `phone`
-- `wechat_nickname` + `wechat_id`
-
-### 4.4 Customer matching
-
-All four fields participate in customer matching:
-
-- name
-- WeChat nickname
-- WeChat ID
-- phone
-
-V1 uses simple candidate search and operator confirmation.
-
-V1 does NOT require:
-
-- fuzzy matching
-- pinyin matching
-- AI matching
-- automatic customer merging
-- ranking/scoring of candidates
-
-Once the operator confirms the intended Customer, the order uses that Customer.
-
-### 4.5 System customer
-
-A system customer named “游客” always exists.
-
-Rules:
-
-- cannot be deleted
-- cannot be renamed
-- its WeChat ID and phone are immutable
-- created by the System User
+- `phone` 和 `wechat_id` 在有值时必须唯一。
+- `name` 和 `wechat_nickname` 不要求唯一。
+- 独立创建 Customer 至少满足 `name + phone` 或 `wechat_nickname + wechat_id`。
+- V1 使用简单候选搜索和操作员确认，不要求模糊匹配、拼音匹配、AI 匹配或自动合并。
+- 系统客户“游客”必须存在，不能删除或改名，其 phone 和 WeChat ID 不可修改。
+- Order 保存客户信息快照。Customer 后续修改不能静默改写历史 Order 快照。
 
 ---
 
-## 5. Equipment Catalog
-
-The equipment catalog is configurable in Settings.
+## 5. Equipment 目录
 
 ### 5.1 EquipmentType
 
-Represents a broad equipment category, such as:
-
-- Kayak
-- Paddleboard
-
-Rules:
-
-- name is unique
-- can be created and edited by operators
+EquipmentType 表示设备大类，例如 Kayak、Paddleboard。名称唯一。
 
 ### 5.2 EquipmentSpec
 
-Represents a specific rentable/chargeable equipment specification.
+EquipmentSpec 表示具体可租赁设备规格，包含：`equipment_type_id`、`name`、当前 `price`、`capacity`、`is_active` 及创建/更新信息。
 
-Examples:
+- 当前价格以整数分保存。
+- 创建 OrderItem 时复制当前价格到 `unit_price`，形成历史价格快照。
+- inactive 的 EquipmentSpec 不能加入新订单，但历史 OrderItem 仍可引用。
+- 不得为了从当前目录移除项目而删除历史业务数据。
+- `capacity` 表示最大总人数，不表示最少人数。
 
-- Racing Kayak — 3-seat
-- Racing Kayak — 2-seat
-- Racing Kayak — 1-seat
-- Leisure Kayak — 3-seat
-- Paddleboard
+V1 初始目录价格：Racing kayak ¥150、Paddleboard ¥150、Leisure kayak ¥90。价格可以在 Settings 中调整。
 
-Fields include:
+### 5.3 Capacity
 
-- `id`
-- `equipment_type_id`
-- `name`
-- `price`
-- `capacity`
-- `is_active`
-- creation/update actor and timestamps
+成人和儿童数量必须是非负数，总人数至少为 1，并满足设备规格的容量和组合规则。
 
-Rules:
+- 3-seat kayak：最多 3 人，至少 1 名成人，最多 2 名成人。
+- 2-seat kayak：最多 2 人，至少 1 名成人。
+- 1-seat kayak：只能 1 名成人，不能有儿童。
+- Paddleboard：V1 不额外规定成人/儿童限制，除非业务明确补充规则。
 
-- price is the current standard price.
-- historical order prices are stored as OrderItem price snapshots.
-- operators cannot edit an existing OrderItem's unit price from the Order page.
-- inactive specifications cannot be used for new orders.
-- historical references remain valid.
-- historical business data must not be deleted merely to remove an item from current use.
+选择设备时，UI 可以初始化人数；操作员手动修改后，后续设备变更不得静默覆盖手动输入。最终保存和 Check-in 前必须再次校验。
 
-### 5.3 Standard current prices
+### 5.4 SaleItem
 
-The initial V1 catalog is:
-
-- Racing kayak: ¥150 / boat
-- Paddleboard: ¥150 / board
-- Leisure kayak: ¥90 / boat
-
-The actual price used by an order is the EquipmentSpec/SaleItem price at the time the OrderItem is created.
+SaleItem 是不属于 EquipmentSpec、但可以收费的额外项目，例如 waterproof bag。它有名称、当前价格和 active 状态。它不占用设备库存。
 
 ---
 
-## 6. Equipment Capacity Rules
+## 6. Order
 
-`capacity` means the maximum total number of people allowed on the equipment.
+Order 至少记录：客户及快照、`start_at`、自动计算的 `end_at`、成人/儿童人数、OrderItems、状态、操作人、Check-in、Return、Auto Return 和 Daily Forced Return 的当前字段。
 
-It does NOT mean minimum occupants.
+- `order_number` 系统生成且唯一。
+- `end_at = start_at + 2 hours`，操作员不能独立编辑 `end_at`。
+- 数据库存储 UTC 时间，业务日期使用 `Asia/Shanghai`。
+- 金额使用整数分。
 
-### 6.1 Racing / Leisure kayak — 3-seat
+### 6.1 状态
 
-Maximum total: 3 people.
-
-At least 1 adult is required.
-
-Maximum adults: 2.
-
-Examples of valid combinations:
-
-- 2 adults + 1 child
-- 1 adult + 2 children
-- 2 adults
-- 1 adult + 1 child
-- 1 adult
-
-Invalid examples:
-
-- 3 adults
-- 0 adults
-- more than 3 total people
-
-### 6.2 Racing / Leisure kayak — 2-seat
-
-Maximum total: 2 people.
-
-Valid combinations:
-
-- 2 adults
-- 1 adult + 1 child
-- 1 adult
-
-Invalid:
-
-- 2 children
-- 3 or more people
-- 0 adults
-
-### 6.3 Racing / Leisure kayak — 1-seat
-
-Only one adult is allowed.
-
-Valid:
-
-- 1 adult
-
-Invalid:
-
-- any child
-- more than one person
-- zero adults
-
-### 6.4 Paddleboard
-
-V1 treats the paddleboard as a single-spec equipment item. Any additional adult/child restrictions should be configurable or validated only if explicitly defined by the business.
-
----
-
-## 7. SaleItem
-
-A SaleItem is a separately catalogued chargeable item that is not an EquipmentSpec.
-
-Examples may include:
-
-- waterproof bag
-- other small rental/sale extras
-
-Fields include:
-
-- `id`
-- `name`
-- `price`
-- `is_active`
-- creation/update actor and timestamps
-
-Rules:
-
-- name is unique.
-- price is the current standard price.
-- historical order prices are stored as OrderItem snapshots.
-- inactive SaleItems cannot be added to new orders.
-- historical references remain valid.
-
-For V1, normal chargeable products should be represented through OrderItem. Payment should not require the operator to re-select items already present in the Order.
-
----
-
-## 8. Order
-
-### 8.1 Purpose
-
-Order is the central business entity.
-
-An Order records:
-
-- customer
-- requested/selected start time
-- end time
-- people count
-- ordered items
-- operational status
-- check-in information
-- return information
-- payment relationship
-- business actors
-
-### 8.2 Core fields
-
-An Order contains:
-
-- `id`
-- `order_number`
-- `customer_id`
-- customer snapshot fields
-- `start_at`
-- `end_at`
-- `adult_count`
-- `child_count`
-- `note`
-- `status`
-- `created_at`
-- `updated_at`
-- `created_by_user_id`
-- `updated_by_user_id`
-- `check_in_at`
-- `check_in_by_user_id`
-- `auto_return_after_minutes`
-- `auto_return_at`
-- `auto_return_occurred`
-- `return_at`
-- `return_by_user_id`
-- `daily_forced_return_occurred`
-
-### 8.3 Order number
-
-`order_number` is system-generated and unique.
-
-### 8.4 Time rules
-
-- The operator selects `start_at`.
-- `end_at` is automatically `start_at + 2 hours`.
-- `end_at` is not independently editable in V1.
-- Database timestamps are stored in UTC.
-- Business time is Asia/Shanghai.
-- User-entered local times are converted to UTC for storage.
-- Business-date decisions use Asia/Shanghai.
-
-The system does not classify an Order based on whether its start time is before, equal to, or after the current time.
-
-### 8.5 Default people count
-
-When equipment is selected, the UI may initialize people counts as follows:
-
-- 2 adults for racing 3-seat
-- 2 adults for racing 2-seat
-- 2 adults for leisure 3-seat
-- 2 adults for leisure 2-seat
-- 1 adult for racing 1-seat
-- 1 adult for leisure 1-seat
-- 1 adult for paddleboard
-- children default to 0
-
-Once the operator manually edits adult/child counts, later equipment changes MUST NOT automatically overwrite the operator's manually entered counts.
-
-The final combination must still satisfy applicable equipment capacity rules.
-
----
-
-## 9. Order Status
-
-V1 has exactly four lifecycle statuses:
+V1 只有以下四种 Order lifecycle status：
 
 - `active`
 - `cancelled`
 - `no_show`
 - `completed`
 
-These are the only lifecycle statuses.
+允许的状态转换：
 
-### 9.1 Active
+- `active → cancelled`
+- `active → no_show`
+- `active → completed`
+- `cancelled → active`
+- `no_show → active`
+- `completed → active`
 
-An active Order can be edited subject to the rules for check-in and return.
+`checked_in`、`returned`、`auto_returned`、`using`、`reserved`、`walk_in` 不是 status 值。`completed` 不代表一定存在 Return；直接完成和系统自动完成都是允许的业务结果。
 
-### 9.2 Terminal statuses
+Terminal Order 正常情况下不可编辑。如需修改，必须先按照规则恢复为 active。
 
-The following are terminal statuses:
+### 6.2 OrderItem
 
-- cancelled
-- no_show
-- completed
+OrderItem 表示普通收费项目，必须恰好引用一个 EquipmentSpec 或一个 SaleItem。
 
-Terminal Orders are locked for normal editing.
-
-To modify a terminal Order, it must first be restored to `active`, subject to business rules.
-
-### 9.3 Status transitions
-
-Allowed transitions:
-
-- active → cancelled
-- active → no_show
-- active → completed
-- cancelled → active
-- no_show → active
-- completed → active
-
-Other direct status transitions are not allowed.
-
-### 9.4 Completed does not imply Return
-
-`completed` is simply a terminal business status.
-
-An Order can be completed without having a Check-in or Return record.
-
-Examples:
-
-- staff confirms at the end of the day that the customer actually used the equipment but Check-in/Return was forgotten
-- a direct Return is recorded without a prior Check-in
-
-`completed` MUST NOT be interpreted as evidence that `return_at` exists.
+- `quantity >= 1`。
+- `unit_price` 是创建时的价格快照，不能在 Order 页面直接修改。
+- 行金额为 `quantity × unit_price`。
+- Check-in 后 OrderItems 锁定。
+- 如需在 Check-in 后修改，必须在允许的情况下取消当前 Check-in，再修改并重新 Check-in。
+- 有效 Return 后 OrderItems 仍保持锁定。
 
 ---
 
-## 10. OrderItem
+## 7. Business date、Check-in 和 Return
 
-OrderItem represents a normal chargeable item within an Order.
+业务时区为 `Asia/Shanghai`。系统比较订单业务日期和当前业务日期：
 
-V1 does not use ActualUsage or ActualUsageItem.
+- 订单日期早于今天：不允许 Check-in 和 Return，不显示相关按钮。
+- 订单日期等于今天：在其他规则允许时可以显示并执行相关操作。
+- 订单日期晚于今天：不允许 Check-in 和 Return，不显示相关按钮。
 
-### 10.1 Core fields
+隐藏按钮不是唯一保护；后端必须再次拒绝不符合日期规则的请求。
 
-An OrderItem contains:
+### 7.1 Check-in
 
-- `id`
-- `order_id`
-- item reference
-- `quantity`
-- `unit_price`
-- creation/update actor and timestamps
-
-The item reference must identify the relevant EquipmentSpec or SaleItem according to the final implementation model.
-
-### 10.2 Price snapshot
-
-When an OrderItem is created:
-
-- `unit_price` is copied from the current catalog price.
-- `unit_price` becomes the historical price snapshot for that OrderItem.
-- operators cannot edit `unit_price` directly from the Order page.
-
-### 10.3 Amount
-
-Line amount is:
-
-`quantity × unit_price`
-
-V1 does not store Order total amount as a permanent field.
-
-### 10.4 Editing rules
-
-Before Check-in:
-
-- equipment/item can be added
-- equipment/item can be removed
-- quantity can be changed
-- applicable catalog item can be changed
-
-After Check-in:
-
-- OrderItems are locked.
-
-To change an OrderItem after Check-in:
-
-1. cancel the current Check-in
-2. modify the OrderItem
-3. Check-in again
-
-An effective Return also keeps the OrderItem locked.
-
----
-
-## 11. Check-in
-
-Check-in is an operation on an Order, NOT a separate database entity.
-
-### 11.1 Fields
-
-The current Check-in state is represented by:
+Check-in 不是独立实体，由当前订单字段表示：
 
 - `check_in_at`
 - `check_in_by_user_id`
 
-### 11.2 Rules
+规则：
 
-- Check-in uses the current system time.
-- The operator performing it is recorded.
-- V1 has no separate Check-in history entity.
-- Re-check-in overwrites the current Check-in timestamp and actor.
-- Cancelled Check-in clears the current Check-in fields.
-- Manual Check-in is allowed only on the same Asia/Shanghai calendar date as the Order date.
-- `check_in_at >= start_at`.
-- An effective Return blocks Check-in changes until Return is cancelled/handled.
+- 时间由操作员按下按钮时系统自动取得，操作员不能输入时间。
+- `check_in_at >= start_at`。
+- 只能对当天订单执行。
+- 有效 Return 存在时，不能直接改变 Check-in，必须先按规则处理 Return。
+- 成功后锁定 OrderItems、开始占用库存并开始 Auto Return 周期。
+- 取消 Check-in 会清除当前 Check-in、释放库存、清除当前 Auto Return 周期并在允许时解锁 OrderItems。
+- V1 不记录 Check-in 历史。
 
-### 11.3 Effects of Check-in
+### 7.2 Return
 
-Successful Check-in:
-
-- locks OrderItems
-- starts inventory occupation
-- starts the Auto Return cycle
-- allows BoatAssignment records to be created if BoatAssignment is used
-
-Check-in is the event that makes an OrderItem count against operational inventory.
-
----
-
-## 12. Return
-
-Return is an operation on an Order, NOT a separate database entity.
-
-### 12.1 Fields
-
-The current Return state is represented by:
+Return 不是独立实体，由当前订单字段表示：
 
 - `return_at`
 - `return_by_user_id`
 
-### 12.2 Manual Return after Check-in
+规则：
 
-If Check-in exists:
+- 时间由操作员执行 Return 时系统自动取得，操作员不能输入时间。
+- 有 Check-in 时，`return_at > check_in_at`。
+- 没有 Check-in 的直接 Return 允许执行，但 `return_at >= start_at + 1 minute`。
+- Return 后订单变为 `completed`，实际占用的库存被释放。
+- 没有 Check-in 的直接 Return 不改变库存，因为此前没有库存占用。
+- Return 只能对当天订单执行；过去日期和未来日期订单不显示 Return 按钮，后端也必须拒绝。
+- 允许的 Return 修正必须是事务一致的业务操作。
 
-- Return must occur after Check-in.
-- Return sets the Order to `completed`.
-- Inventory occupied by the Check-in is released.
-
-### 12.3 Direct Return without Check-in
-
-A direct Return is allowed.
-
-This means:
-
-- the operator confirms that the business activity has ended
-- the Order becomes `completed`
-- no inventory release occurs because there was no inventory occupation
-- no Check-in is created automatically
-
-For a direct Return without Check-in:
-
-`return_at >= start_at + 1 minute`
-
-### 12.4 Return after end time
-
-Return may occur later than the planned `end_at`.
-
-### 12.5 Return cancellation
-
-Cancelling the current effective Return:
-
-- clears `return_at`
-- clears `return_by_user_id`
-- resets the current daily forced return marker if applicable
-- does not automatically resume a previously invalidated ordinary Auto Return task
-
-If a completed Order had an effective Return, restoring it to active does not automatically remove the historical Auto Return snapshot fields.
+V1 不设置“客户是否仍在使用设备”的字段。
 
 ---
 
-## 13. Auto Return
+## 8. Auto Return
 
-Auto Return protects inventory when staff forget to record a Return.
+Auto Return 是防止操作员繁忙时库存长期被占用的库存保护机制，不是客户实际使用状态记录，也不代表客户一定在该时刻停止使用。
 
-### 13.1 Configuration
+Check-in 时：
 
-Settings contains:
+- 将当前 `auto_return_after_minutes` 复制到 Order；
+- 计算本次 `auto_return_at`；
+- 开始库存占用。
 
-- `auto_return_after_minutes`
+到期时，如果没有有效 Return，系统执行 Auto Return：
 
-Default:
+- 订单变为 `completed`；
+- 释放库存；
+- 使用 System User；
+- 设置 Auto Return 相关标记和时间。
 
-- 120 minutes
+如果客户实际使用时间超过 Auto Return，操作员可以执行允许的人工 Return 更新/修正操作，使用当前系统时间记录操作员的 Return。该操作必须按实现约定清除或更新当前 Auto Return 时间标记，并作为单一事务处理。V1 不增加客户实际使用字段。
 
-Minimum:
-
-- 1 minute
-
-### 13.2 Snapshot behavior
-
-When Check-in occurs:
-
-`auto_return_after_minutes` is copied to the Order.
-
-Later Settings changes do not affect the current Check-in cycle.
-
-### 13.3 Automatic Return
-
-When the scheduled time is reached and the Order still has no effective Return:
-
-- the system creates the current Return
-- `return_at` is the scheduled Auto Return time
-- `return_by_user_id` is the System User
-- the Order becomes `completed`
-- inventory is released
-
-The Auto Return operation marks:
-
-- `auto_return_occurred = 1`
-- `auto_return_at = actual Auto Return time`
-
-### 13.4 Manual Return before Auto Return
-
-If staff manually Return before the scheduled Auto Return:
-
-- the manual Return becomes the effective Return
-- the original scheduled task must not later create another Return
-
-### 13.5 Auto Return followed by human Return
-
-If Auto Return has already occurred and a human later records a Return:
-
-- `auto_return_at` remains the original automatic Return time
-- `auto_return_occurred` remains true
-- `return_at` becomes the human Return time
-- `return_by_user_id` becomes the human operator
-
-### 13.6 Check-in cancellation
-
-Cancelling Check-in clears the current Auto Return cycle:
-
-- `auto_return_after_minutes = NULL`
-- `auto_return_occurred = 0`
-- `auto_return_at = NULL`
-
-A new Check-in starts a new cycle.
+如果操作员在 Auto Return 前人工 Return，Auto Return 任务不得随后重复创建 Return。
 
 ---
 
-## 14. Daily Forced Return
+## 9. Daily Forced Return
 
-Daily Forced Return is a separate end-of-day inventory safety mechanism.
+Daily Forced Return 是防止跨午夜订单长期占用库存的技术安全机制，不是客户流程的核心业务要求。
 
-### 14.1 Timing
+每天 Asia/Shanghai 的 `23:59:01–23:59:59` 处理仍有有效 Check-in 且没有有效 Return 的订单：
 
-V1 uses the fixed Asia/Shanghai window:
+- 使用 System User 记录 Return；
+- 释放库存；
+- 将订单设为 completed；
+- 设置 `daily_forced_return_occurred`。
 
-`23:59:01–23:59:59`
-
-### 14.2 Eligibility
-
-An Order is eligible if:
-
-- it has an effective Check-in
-- it has no effective Return
-
-### 14.3 Effects
-
-Daily Forced Return:
-
-- creates the current Return
-- uses the System User
-- releases occupied inventory
-- sets `daily_forced_return_occurred = 1`
-- does not change ordinary Auto Return fields
-
-### 14.4 Cancellation
-
-Cancelling the effective Daily Forced Return:
-
-- clears the current Return fields
-- resets `daily_forced_return_occurred = 0`
-
-If a new Check-in occurs, the daily forced return marker is reset.
+它与普通 Auto Return 独立，不应被解释为客户实际停止使用的精确事实。V1 不保存客户实际使用状态字段。
 
 ---
 
-## 15. Inventory
+## 10. Inventory
 
-### 15.1 Meaning of inventory quantity
+Inventory 表示当前运营库存，不是物理所有权历史。每个 EquipmentSpec 有一个库存配置 `total_quantity`。
 
-V1 inventory represents **current operational inventory**, not total physical ownership.
+```text
+available_quantity = total_quantity - occupied_quantity
+```
 
-Example:
+`occupied_quantity` 只统计属于有效 Check-in 且没有有效 Return 的 EquipmentSpec OrderItem。未来订单不会占用库存。
 
-If the business physically owns 20 boats but 5 are currently lent to another club, the operator may change operational inventory to 15.
+库存不足规则：
 
-V1 does not need to record why the quantity changed.
-
-### 15.2 Inventory configuration
-
-Each EquipmentSpec has one InventoryConfiguration containing:
-
-- `equipment_spec_id`
-- `total_quantity`
-- `updated_by_user_id`
-- `updated_at`
-
-### 15.3 Available inventory
-
-Available inventory is calculated:
-
-`available = total operational inventory - currently occupied quantity`
-
-Occupied quantity consists only of OrderItem quantities belonging to Orders that:
-
-- have an effective Check-in
-- do not have an effective Return
-
-Future Orders do not reduce available inventory.
-
-### 15.4 Inventory release
-
-Inventory is released when:
-
-- an effective Return occurs
-- an effective Check-in is cancelled
-
-Direct Return without Check-in does not change inventory.
-
-### 15.5 Inventory shortage
-
-V1 may warn the operator when an operation would result in insufficient inventory.
-
-V1 does not require a hard inventory reservation block.
-
-### 15.6 Inventory minimum
-
-`total_quantity` cannot be negative and cannot be lower than current occupied quantity.
-
-V1 does not maintain an inventory transaction/history table.
+- 可用库存为 0 或 Check-in 后会小于 0 时，必须显示清晰警告。
+- V1 不强制阻止 Check-in；操作员确认后仍可完成。
+- `total_quantity` 不得为负数。
+- V1 不要求保存库存调整历史。
 
 ---
 
-## 16. Boat
+## 11. Payment
 
-Boat management is optional through Settings.
+Payment 用于记录订单的应收金额计算和人工调整明细，不记录实际付款状态或付款渠道。
 
-A Boat represents an individually numbered physical boat.
+V1 不记录：
 
-Fields include:
+- 已付款/未付款；
+- 现金、微信、支付宝、银行卡等支付方式；
+- 客户支付账户信息。
 
-- `id`
-- `equipment_spec_id`
-- `boat_number`
-- `status`
-- `created_at`
-- `updated_at`
+最终金额可由明细计算：
 
-### 16.1 Boat number
+```text
+final_amount = SUM(OrderItem.quantity × OrderItem.unit_price)
+             + SUM(PaymentItem.amount)
+```
 
-`boat_number` is globally unique.
+最终金额必须能够按订单查询并用于后续统计分析。可以动态计算，也可以保存可重建的缓存；Order 的独立总金额不能取代明细作为唯一权威数据。
 
-### 16.2 Boat status
+PaymentItem 用于折扣、附加费、退款、修正等人工调整：
 
-V1 uses:
-
-- `available`
-- `not_available`
-
-`not_available` prevents new assignment.
-
-Existing historical/current assignments are not automatically deleted.
-
-### 16.3 BoatAssignment
-
-BoatAssignment is a supporting data structure, not a V1 primary workflow.
-
-Rules:
-
-- assignment belongs to an OrderItem
-- assignment is only created after Check-in
-- no assignment before Check-in
-- assignment count does not have to equal OrderItem quantity
-- no automatic assignment
-- V1 does not require overlap/conflict validation
-- the same Boat may appear on overlapping Orders
-- Return does not automatically delete the assignment
-- a wrong assignment can be corrected by deleting the incorrect record and creating the correct one
-
-V1 does not require a BoatAssignment UI.
+- `amount = quantity × unit_price`；
+- 正数表示增加，负数表示退款或扣减；
+- 人工 adjustment 必须填写 note；
+- PaymentItem 创建后不可修改；
+- 更正必须新增 PaymentItem；
+- completed、cancelled、no-show 订单仍可添加 Payment adjustment。
 
 ---
 
-## 17. Payment
+## 12. Actor、ID 和历史完整性
 
-### 17.1 Payment purpose
+每个业务变更必须记录操作人。自动操作使用 System User。所有主键使用 UUID。金额使用整数分。数据库时间使用 UTC，业务日期使用 Asia/Shanghai。
 
-Payment records the current financial state associated with an Order.
+EquipmentSpec、SaleItem 停用时使用 `is_active = 0`，不得删除历史引用。Orders、OrderItems、Payments、PaymentItems 和操作人引用不得为了绕过业务规则而删除。
 
-V1 does not duplicate OrderItem selection in Payment.
-
-The Payment UI displays the Order's current normal chargeable items and their calculated amounts.
-
-### 17.2 Normal order charges
-
-Normal charges come directly from OrderItems:
-
-`SUM(quantity × unit_price)`
-
-The operator does not re-select Kayaks, Paddleboards, waterproof bags, or other OrderItems inside Payment.
-
-### 17.3 Other adjustments
-
-Payment may contain additional adjustment records for cases such as:
-
-- discount
-- surcharge
-- refund
-- correction
-- other manual adjustment
-
-These are represented by PaymentItem records of type `other`.
-
-### 17.4 PaymentItem
-
-A PaymentItem contains:
-
-- `id`
-- `payment_id`
-- `type`
-- `item_name`
-- `quantity`
-- `unit_price`
-- `amount`
-- `note`
-- actor and timestamp
-
-For `other`:
-
-- `sale_item_id` is NULL
-- `item_name` is “其他”
-- `note` is mandatory
-- `unit_price >= 0`
-- `quantity != 0`
-- `amount != 0`
-- `amount = quantity × unit_price`
-
-Positive values represent charges.
-
-Negative values represent refunds/deductions.
-
-### 17.5 Immutability
-
-PaymentItem records are immutable after creation.
-
-Corrections are made by adding a new adjustment rather than editing the historical PaymentItem.
-
-### 17.6 Final amount
-
-Current received/final amount is dynamically calculated:
-
-`SUM(current OrderItem charges) + SUM(current PaymentItem adjustments)`
-
-The final Order amount is not stored as a separate authoritative field.
-
-### 17.7 Payment status
-
-V1 does not store a separate payment status field.
-
-The application can derive/display payment state from the current Payment data.
-
-Payment remains adjustable even after the Order reaches a terminal status.
+V1 不要求独立 audit log，但核心表必须保留创建、更新及关键操作人字段。
 
 ---
 
-## 18. Order and Customer Snapshot
-
-An Order stores a snapshot of customer information in addition to its `customer_id`.
-
-This preserves the customer information that was associated with the Order at the time it was created.
-
-Changing the Customer profile later must not silently rewrite historical Order snapshots.
-
----
-
-## 19. Actor Tracking
-
-Every business-changing action must identify the User responsible for it.
-
-Typical actor fields include:
-
-- `created_by_user_id`
-- `updated_by_user_id`
-- `check_in_by_user_id`
-- `return_by_user_id`
-
-Automatic operations use the System User.
-
-V1 does not require a separate audit-log entity, but the actor fields above are part of the business model.
-
----
-
-## 20. Data Integrity Rules
-
-### 20.1 IDs
-
-All primary keys use UUID values.
-
-### 20.2 Money
-
-Money is stored as integer fen.
-
-UI displays yuan.
-
-### 20.3 Time
-
-Database timestamps are UTC.
-
-Business timezone is Asia/Shanghai.
-
-UTC timestamps use ISO 8601 with `Z` and seconds precision.
-
-### 20.4 Nullability
-
-NULL means nonexistent, unknown, or not applicable.
-
-NOT NULL means required.
-
-Defaults are used only where they have explicit business meaning.
-
-### 20.5 Foreign keys
-
-Foreign keys must reference valid records.
-
-Historical business records must not be deleted to bypass business rules.
-
-### 20.6 Historical catalog data
-
-If an EquipmentSpec or SaleItem is no longer offered:
-
-- deactivate it
-- do not delete historical references merely to remove it from the current catalog
-
-### 20.7 Quantity
-
-OrderItem quantity must be at least 1.
-
-Inventory quantity must not be negative.
-
-### 20.8 People
-
-Adult and child counts must be non-negative.
-
-Total people must be at least 1.
-
-Equipment-specific capacity/composition rules are enforced at the business layer.
-
-### 20.9 Order timing
-
-`end_at > start_at`
-
-`end_at = start_at + 2 hours`
-
-If Check-in exists:
-
-`check_in_at >= start_at`
-
-and Check-in must be on the same Asia/Shanghai calendar date as the Order date.
-
-If both Check-in and Return exist:
-
-`return_at > check_in_at`
-
-If Return exists without Check-in:
-
-`return_at >= start_at + 1 minute`
-
-### 20.10 Auto Return invariants
-
-If `auto_return_occurred = 0`:
-
-`auto_return_at IS NULL`
-
-If `auto_return_occurred = 1`:
-
-`auto_return_at IS NOT NULL`
-
-When an Auto Return has occurred:
-
-`auto_return_at > check_in_at`
-
-and the current Return must not precede the Auto Return time.
-
-### 20.11 Check-in / Return pairing
-
-Check-in state is represented by the pair:
-
-- `check_in_at`
-- `check_in_by_user_id`
-
-Return state is represented by the pair:
-
-- `return_at`
-- `return_by_user_id`
-
-The two fields in each pair should remain logically consistent.
-
-### 20.12 Effective Return and completion
-
-An effective Return always results in:
-
-`status = completed`
-
-However:
-
-`status = completed`
-
-does NOT require an effective Return.
-
-### 20.13 Inventory occupation
-
-Only an effective Check-in without an effective Return causes OrderItem quantity to occupy inventory.
-
-### 20.14 BoatAssignment
-
-BoatAssignment does not affect inventory calculations.
-
----
-
-## 21. Business State vs. Technical Implementation
-
-The following concepts are business rules, not requirements to create separate software entities or services:
-
-- Check-in
-- Return
-- Auto Return
-- Daily Forced Return
-- Reservation
-- Walk-in
-
-Implementation may represent these concepts using Order fields, service methods, scheduled jobs, or other technical structures.
-
-The implementation must preserve the business behavior defined in this document.
-
----
-
-## 22. V1 Explicit Boundaries
-
-The following are intentionally outside the V1 business model:
-
-- Reservation entity
-- ReservationItem entity
-- Walk-in entity/type
-- Order type
-- ActualUsage entity
-- ActualUsageItem entity
-- CheckIn entity
-- Return entity
-- ReturnItem entity
-- Check-in history entity
-- Return history entity
-- multi-role permission model
-- online customer self-booking
-- WeChat login/integration
-- multi-store management
-- advanced customer matching
-- automatic customer merge
-- advanced analytics
-- inventory adjustment history
-- BoatAssignment UI
-- complex payment allocation workflow
-- full accounting/finance module
-
-These may be considered in future versions, but V1 implementation must not introduce them merely because they are common patterns in rental software.
-
----
-
-## 23. Guiding Principle
-
-The V1 system should prefer a small number of clear concepts over a large number of specialized entities.
-
-In particular:
-
-> One customer transaction is one Order.
-
-> Reservation and Walk-in describe how people talk about an Order; they do not define different Order types.
-
-> Check-in and Return describe operations on an Order; they do not require separate business entities.
-
-> Inventory reflects current operational availability, not ownership history.
-
-> Payment should complement OrderItems, not duplicate them.
-
-> Technical implementation may change as the project adopts a suitable open-source base or reusable components, provided the business rules in this document remain intact.
+## 13. V1 明确排除的内容
+
+V1 不包含：
+
+- Boat、BoatAssignment 和具体船号管理；
+- 客户自助预订、客户账号、在线支付、微信登录或小程序；
+- 角色权限、多个门店、复杂会计、支付网关；
+- 预约冲突引擎；
+- Check-in、Return、ActualUsage 的独立历史表；
+- 客户实际使用状态字段；
+- 库存调整历史和完整 audit log。
+
+Boat/BoatAssignment 可以在 V2 根据真实使用情况重新设计。

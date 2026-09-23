@@ -1,737 +1,424 @@
-# ER_MODEL.md
-
 # Rental App — Entity Relationship Model
 
-## 1. Purpose
+## 1. 文档目的
 
-This document defines the V1 logical database model for Rental App.
+本文档定义 Rental App V1 的逻辑数据库模型。它把 `BUSINESS_RULES.md` 和 `PRD.md` 中已经确认的业务规则转换为数据表、字段、关系和数据库约束。
 
-It translates the business rules and product requirements into persistent data structures.
-
-It defines:
-- entities/tables
-- important fields
-- primary keys and foreign keys
-- uniqueness and cardinality
-- important database-level constraints
-- which business concepts are represented by fields rather than separate entities
-
-`BUSINESS_RULES.md` remains authoritative for business behavior.
+`BUSINESS_RULES.md` 对业务行为具有最高权威。本文件不引入独立的 Reservation、Walk-in、Check-in、Return 或客户实际使用状态实体。
 
 ---
 
-## 2. Database Conventions
+## 2. V1 数据库约定
 
-### 2.1 Database
-V1 uses SQLite.
-
-### 2.2 Primary keys
-All primary keys use UUID values, stored as SQLite `TEXT`.
-
-Primary key column name: `id`.
-
-### 2.3 Foreign keys
-Foreign keys use `<entity>_id`, for example:
-- `customer_id`
-- `order_id`
-- `equipment_spec_id`
-- `created_by_user_id`
-
-Foreign keys should be indexed where appropriate. Default behavior should be restrictive. Historical business data must not be removed through broad cascading deletes.
-
-### 2.4 Time
-Database timestamps are UTC. Business timezone is `Asia/Shanghai`.
-
-Timestamps use ISO 8601 UTC with seconds precision and `Z`.
-
-### 2.5 Money
-Money is stored as integer fen. UI displays yuan.
-
-### 2.6 Boolean
-Boolean values use `0` / `1`.
-
-### 2.7 Naming
-Tables and columns use plural/snake_case:
-- `users`
-- `customers`
-- `orders`
-- `order_items`
+- 数据库：V1 使用 SQLite。
+- 主键：UUID，以 SQLite `TEXT` 保存。
+- 外键：使用 `<entity>_id` 命名，并在适当位置建立索引。
+- 时间：数据库保存 UTC 时间；业务日期使用 `Asia/Shanghai` 判断。
+- UTC 时间使用带秒的 ISO 8601 格式，例如 `2026-09-23T12:00:00Z`。
+- 金额：使用整数分（fen）保存，界面显示人民币元。
+- 布尔值：使用 `0` / `1`。
+- 表名和字段名：使用复数和 snake_case，例如 `orders`、`order_items`。
+- 历史业务数据不得通过宽泛级联删除而被删除。
 
 ---
 
-# 3. V1 Entity Overview
+## 3. V1 实体总览
 
-Primary entities:
+V1 包含以下实体：
 
 1. `users`
 2. `customers`
 3. `equipment_types`
 4. `equipment_specs`
 5. `sale_items`
-6. `boats`
-7. `inventory_configurations`
-8. `orders`
-9. `order_items`
-10. `boat_assignments`
-11. `payments`
-12. `payment_items`
-13. `settings`
-
-The following are intentionally **not** entities:
-
-- Reservation
-- ReservationItem
-- Walk-in
-- ActualUsage
-- ActualUsageItem
-- CheckIn
-- Return
-- ReturnItem
-- OrderType
-
-Check-in and Return are represented by fields on `orders`.
-
----
-
-# 4. users
-
-## Purpose
-Stores authenticated operators and the System User.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK, NOT NULL |
-| username | TEXT | UNIQUE, NOT NULL |
-| display_name | TEXT | NOT NULL |
-| password_hash | TEXT | NOT NULL |
-| is_active | INTEGER | NOT NULL, default 1 |
-| is_system | INTEGER | NOT NULL, default 0 |
-| created_at | TEXT | NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Rules:
-- `username` is unique.
-- Exactly one protected System User exists.
-- System User has `is_system = 1`.
-- System User cannot be deleted or used for normal login.
-- Automatic actions reference the System User.
-
----
-
-# 5. customers
-
-## Purpose
-Stores reusable customer profiles.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| name | TEXT | NULL |
-| gender | TEXT | NULL |
-| wechat_nickname | TEXT | NULL |
-| wechat_id | TEXT | UNIQUE when present |
-| phone | TEXT | UNIQUE when present |
-| is_system | INTEGER | NOT NULL, default 0 |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-A standalone Customer must satisfy:
-- `(name AND phone)`, OR
-- `(wechat_nickname AND wechat_id)`
-
-`phone` and `wechat_id` are unique when present.
-
-The protected system customer is `游客` and cannot be deleted or renamed; its phone and WeChat ID are immutable.
-
----
-
-# 6. equipment_types
-
-## Purpose
-Defines broad equipment categories such as Kayak and Paddleboard.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| name | TEXT | UNIQUE, NOT NULL |
-| created_at | TEXT | NOT NULL |
-| updated_at | TEXT | NOT NULL |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-
----
-
-# 7. equipment_specs
-
-## Purpose
-Defines specific rentable equipment specifications.
-
-Examples:
-- Racing Kayak — 3-seat
-- Racing Kayak — 2-seat
-- Racing Kayak — 1-seat
-- Leisure Kayak — 3-seat
-- Leisure Kayak — 2-seat
-- Paddleboard
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| equipment_type_id | TEXT | FK, NOT NULL |
-| name | TEXT | NOT NULL |
-| price | INTEGER | NOT NULL |
-| capacity | INTEGER | NULL/NOT NULL according to item capability |
-| is_active | INTEGER | NOT NULL, default 1 |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Recommended uniqueness:
-`UNIQUE(equipment_type_id, name)`
-
-Rules:
-- `price >= 0`
-- inactive specs cannot be used for new Orders
-- historical OrderItems may reference inactive specs
-- `price` is the current catalog price, not a historical order price
-
----
-
-# 8. sale_items
-
-## Purpose
-Stores separately catalogued chargeable extras such as waterproof bags.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| name | TEXT | UNIQUE, NOT NULL |
-| price | INTEGER | NOT NULL |
-| is_active | INTEGER | NOT NULL, default 1 |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Rules:
-- `price >= 0`
-- inactive SaleItems cannot be added to new Orders
-- historical OrderItems may reference inactive SaleItems
-
----
-
-# 9. boats
-
-## Purpose
-Represents individually numbered physical boats.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| equipment_spec_id | TEXT | FK, NOT NULL |
-| boat_number | TEXT | UNIQUE, NOT NULL |
-| status | TEXT | NOT NULL, default `available` |
-| created_at | TEXT | NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Allowed status:
-- `available`
-- `not_available`
-
-A `not_available` boat cannot receive a new BoatAssignment.
-
----
-
-# 10. inventory_configurations
-
-## Purpose
-Stores current operational inventory for each EquipmentSpec.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| equipment_spec_id | TEXT | FK, UNIQUE, NOT NULL |
-| total_quantity | INTEGER | NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Rules:
-- one configuration per EquipmentSpec
-- `total_quantity >= 0`
-- this is current operational inventory, not ownership history
-- available quantity is calculated, not stored
-
----
-
-# 11. orders
-
-## Purpose
-Central business entity for every customer transaction.
-
-There is no separate Reservation or Walk-in entity.
-
-## Fields
-
-| Field | Type | Constraints | Description |
-|---|---|---|---|
-| id | TEXT | PK | UUID |
-| order_number | TEXT | UNIQUE, NOT NULL | Human-facing order number |
-| customer_id | TEXT | FK, NOT NULL | Customer |
-| customer_name | TEXT | NULL | Historical snapshot |
-| customer_gender | TEXT | NULL | Historical snapshot |
-| customer_wechat_nickname | TEXT | NULL | Historical snapshot |
-| customer_wechat_id | TEXT | NULL | Historical snapshot |
-| customer_phone | TEXT | NULL | Historical snapshot |
-| start_at | TEXT | NOT NULL | UTC |
-| end_at | TEXT | NOT NULL | UTC |
-| adult_count | INTEGER | NOT NULL | Adults |
-| child_count | INTEGER | NOT NULL | Children |
-| note | TEXT | NULL | Operator note |
-| status | TEXT | NOT NULL, default `active` | Lifecycle status |
-| created_at | TEXT | NOT NULL | UTC |
-| updated_at | TEXT | NOT NULL | UTC |
-| check_in_at | TEXT | NULL | Current Check-in |
-| check_in_by_user_id | TEXT | FK, NULL | Check-in actor |
-| auto_return_after_minutes | INTEGER | NULL | Check-in snapshot |
-| auto_return_at | TEXT | NULL | Auto Return time |
-| auto_return_occurred | INTEGER | NOT NULL, default 0 | Auto Return marker |
-| return_at | TEXT | NULL | Current effective Return |
-| return_by_user_id | TEXT | FK, NULL | Return actor |
-| daily_forced_return_occurred | INTEGER | NOT NULL, default 0 | Daily Forced Return marker |
-| created_by_user_id | TEXT | FK, NOT NULL | Creator |
-| updated_by_user_id | TEXT | FK, NOT NULL | Last updater |
-
-Allowed status:
-- `active`
-- `cancelled`
-- `no_show`
-- `completed`
-
-Important constraints:
-- `end_at = start_at + 2 hours`
-- `end_at > start_at`
-- adult/child counts are non-negative
-- total people >= 1
-- if Check-in exists: `check_in_at >= start_at`
-- Check-in must be on the same Asia/Shanghai calendar date as the Order date
-- if both Check-in and Return exist: `return_at > check_in_at`
-- if Return exists without Check-in: `return_at >= start_at + 1 minute`
-
-Check-in state is the pair:
-- `check_in_at`
-- `check_in_by_user_id`
-
-Return state is the pair:
-- `return_at`
-- `return_by_user_id`
-
-Auto Return invariants:
-- `auto_return_occurred = 0` ↔ `auto_return_at IS NULL`
-- `auto_return_occurred = 1` ↔ `auto_return_at IS NOT NULL`
-- when occurred, `auto_return_at > check_in_at`
-- current Return cannot precede Auto Return time
-
-`daily_forced_return_occurred` identifies that the current effective Return was produced by the daily end-of-day mechanism.
-
----
-
-# 12. order_items
-
-## Purpose
-Stores normal chargeable items belonging to an Order.
-
-An OrderItem can represent either:
-- an EquipmentSpec
-- a SaleItem
-
-This keeps normal chargeable items in one place and prevents Payment from duplicating item selection.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| order_id | TEXT | FK, NOT NULL |
-| equipment_spec_id | TEXT | FK, NULL |
-| sale_item_id | TEXT | FK, NULL |
-| quantity | INTEGER | NOT NULL |
-| unit_price | INTEGER | NOT NULL |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Business invariant:
-
-`exactly one of equipment_spec_id and sale_item_id is non-NULL`
-
-Other constraints:
-- `quantity >= 1`
-- `unit_price >= 0`
-
-`unit_price` is copied from the catalog at creation and becomes the historical price snapshot.
-
-Line amount is calculated:
-`quantity × unit_price`
-
-No separate `amount` field is required.
-
-Only OrderItems referencing EquipmentSpec affect equipment inventory.
-
-OrderItems are editable before effective Check-in and locked after effective Check-in. Effective Return also leaves them locked.
-
----
-
-# 13. boat_assignments
-
-## Purpose
-Optional assignment of an individual Boat to an OrderItem.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| order_item_id | TEXT | FK, NOT NULL |
-| boat_id | TEXT | FK, NOT NULL |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-
-Rules:
-- assignment only after Check-in
-- no assignment before Check-in
-- assignment does not affect inventory
-- assignment count does not have to equal OrderItem quantity
-- no V1 overlap validation
-- same Boat may appear on overlapping assignments
-- `not_available` Boat cannot receive a new assignment
-
-V1 does not require a BoatAssignment UI.
-
----
-
-# 14. payments
-
-## Purpose
-Payment container associated with an Order.
-
-## Cardinality
-`orders 1 : 0..1 payments`
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| order_id | TEXT | FK, UNIQUE, NOT NULL |
-
-V1 does not store:
-- permanent payment total
-- payment status
-- payment method as an authoritative financial field
-- duplicate equipment/payment allocation data
-
-Current amount is derived from OrderItems plus PaymentItems.
-
----
-
-# 15. payment_items
-
-## Purpose
-Stores manual financial adjustments that are not normal OrderItems.
-
-Examples:
-- discount
-- surcharge
-- refund
-- correction
-- other
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| payment_id | TEXT | FK, NOT NULL |
-| type | TEXT | NOT NULL |
-| item_name | TEXT | NOT NULL |
-| quantity | INTEGER | NOT NULL |
-| unit_price | INTEGER | NOT NULL |
-| amount | INTEGER | NOT NULL |
-| note | TEXT | NULL / required for `other` |
-| created_by_user_id | TEXT | FK, NOT NULL |
-| created_at | TEXT | NOT NULL |
-
-V1 primarily uses `type = other`.
-
-Constraints:
-- `quantity != 0`
-- `unit_price >= 0`
-- `amount != 0`
-- `amount = quantity × unit_price`
-- `type = other` requires a note
-- PaymentItems are immutable after creation
-
-Corrections are represented by new PaymentItems.
-
----
-
-# 16. settings
-
-## Purpose
-Stores true system-wide operational settings.
-
-Settings is not a generic JSON/key-value dump.
-
-## Fields
-
-| Field | Type | Constraints |
-|---|---|---|
-| id | TEXT | PK |
-| auto_return_after_minutes | INTEGER | NOT NULL, default 120 |
-| boat_management_enabled | INTEGER | NOT NULL, default 1 |
-| updated_by_user_id | TEXT | FK, NOT NULL |
-| updated_at | TEXT | NOT NULL |
-
-Rules:
-- one active Settings row is expected
-- `auto_return_after_minutes >= 1`
-
-Equipment prices, SaleItem prices, inventory quantities, Order duration, and Daily Forced Return schedule do not belong in this table.
-
----
-
-# 17. Entity Relationships
-
-## 17.1 Customer → Order
-`customers 1 : N orders`
-
-Each Order has exactly one Customer.
-
-A Customer can have many Orders.
-
-Order also stores customer identity snapshots.
-
-## 17.2 EquipmentType → EquipmentSpec
-`equipment_types 1 : N equipment_specs`
-
-## 17.3 EquipmentSpec → InventoryConfiguration
-`equipment_specs 1 : 1 inventory_configurations`
-
-## 17.4 EquipmentSpec → Boat
-`equipment_specs 1 : N boats`
-
-## 17.5 Order → OrderItem
-`orders 1 : N order_items`
-
-## 17.6 EquipmentSpec → OrderItem
-`equipment_specs 1 : N order_items`
-
-## 17.7 SaleItem → OrderItem
-`sale_items 1 : N order_items`
-
-An OrderItem references exactly one of the two item types.
-
-## 17.8 OrderItem → BoatAssignment
-`order_items 1 : N boat_assignments`
-
-## 17.9 Boat → BoatAssignment
-`boats 1 : N boat_assignments`
-
-V1 does not require overlap validation.
-
-## 17.10 Order → Payment
-`orders 1 : 0..1 payments`
-
-## 17.11 Payment → PaymentItem
-`payments 1 : N payment_items`
-
----
-
-# 18. Inventory Calculation
-
-Inventory does not store `available_quantity`.
-
-For an EquipmentSpec:
-
-`occupied_quantity = SUM(OrderItem.quantity)`
-
-where the OrderItem:
-1. references that EquipmentSpec
-2. belongs to an Order with effective Check-in
-3. belongs to an Order without effective Return
-
-Then:
-
-`available_quantity = total_quantity - occupied_quantity`
-
-Future Orders do not occupy inventory.
-
-Cancelling Check-in removes the Order from occupied inventory.
-
-Effective Return removes the Order from occupied inventory.
-
-Direct Return without Check-in does not release inventory because no inventory was previously occupied.
-
----
-
-# 19. Order State Representation
-
-V1 intentionally represents several operational concepts through Order fields instead of additional tables.
-
-### Check-in
-- `check_in_at`
-- `check_in_by_user_id`
-
-### Return
-- `return_at`
-- `return_by_user_id`
-
-### Auto Return
-- `auto_return_after_minutes`
-- `auto_return_at`
-- `auto_return_occurred`
-
-### Daily Forced Return
-- `daily_forced_return_occurred`
-
-Therefore V1 does not introduce:
+6. `inventory_configurations`
+7. `orders`
+8. `order_items`
+9. `payments`
+10. `payment_items`
+11. `settings`
+
+V1 明确不包含：
+
+- `boats`
+- `boat_assignments`
+- `reservations`
+- `reservation_items`
+- `walk_ins`
+- `actual_usages`
+- `actual_usage_items`
 - `check_ins`
 - `returns`
 - `return_items`
+- `order_types`
+- 客户是否仍在使用设备的独立状态字段
+
+Boat 和 BoatAssignment 可在 V2 根据真实运营需要重新设计，但不属于 V1 的表、页面、API 或定时任务。
 
 ---
 
-# 20. Status and State Separation
+## 4. `users`
 
-Order `status` contains only:
+保存内部操作员和受保护的 System User。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `username` | TEXT | UNIQUE, NOT NULL |
+| `display_name` | TEXT | NOT NULL |
+| `password_hash` | TEXT | NOT NULL |
+| `is_active` | INTEGER | NOT NULL, default 1 |
+| `is_system` | INTEGER | NOT NULL, default 0 |
+| `created_at` | TEXT | NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+规则：
+
+- `username` 唯一。
+- V1 的正常用户都是内部操作员，使用用户名和密码登录。
+- V1 不实现角色和权限矩阵，正常操作员拥有相同的功能权限。
+- System User 必须存在，且 `is_system = 1`。
+- System User 不能删除，不能通过普通登录流程登录。
+- Auto Return 和 Daily Forced Return 使用 System User 作为操作人。
+
+---
+
+## 5. `customers`
+
+保存可重复使用的客户资料。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `name` | TEXT | NULL |
+| `gender` | TEXT | NULL |
+| `wechat_nickname` | TEXT | NULL |
+| `wechat_id` | TEXT | UNIQUE when present |
+| `phone` | TEXT | UNIQUE when present |
+| `is_system` | INTEGER | NOT NULL, default 0 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+规则：
+
+- 独立创建的 Customer 至少满足：`name + phone`，或 `wechat_nickname + wechat_id`。
+- `phone` 和 `wechat_id` 在非 NULL 时必须唯一。
+- 姓名和微信昵称不要求唯一。
+- 系统客户“游客”必须存在，不能删除或改名；其 phone 和 WeChat ID 不可修改。
+- Customer 搜索使用简单候选搜索，由操作员确认最终客户。
+
+---
+
+## 6. `equipment_types`
+
+保存设备大类，例如 Kayak、Paddleboard。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `name` | TEXT | UNIQUE, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+
+---
+
+## 7. `equipment_specs`
+
+保存具体的可租赁设备规格，例如 Racing Kayak 2-seat。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `equipment_type_id` | TEXT | FK, NOT NULL |
+| `name` | TEXT | NOT NULL |
+| `price` | INTEGER | NOT NULL, >= 0 |
+| `capacity` | INTEGER | NULL 或 NOT NULL，依设备能力决定 |
+| `is_active` | INTEGER | NOT NULL, default 1 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+推荐约束：`UNIQUE(equipment_type_id, name)`。
+
+`price` 是当前标准价格，不是历史订单价格。创建 OrderItem 时复制为 `OrderItem.unit_price`。停用的规格不能加入新订单，但历史 OrderItem 仍可引用。
+
+`capacity` 表示最大承载人数。成人/儿童组合规则由业务层校验。
+
+---
+
+## 8. `sale_items`
+
+保存不属于 EquipmentSpec、但可以收费的额外项目，例如 waterproof bag。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `name` | TEXT | UNIQUE, NOT NULL |
+| `price` | INTEGER | NOT NULL, >= 0 |
+| `is_active` | INTEGER | NOT NULL, default 1 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+停用的 SaleItem 不能加入新订单，但历史 OrderItem 仍可引用。SaleItem 不占用设备库存。
+
+---
+
+## 9. `inventory_configurations`
+
+保存每种 EquipmentSpec 当前可用于运营的数量。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `equipment_spec_id` | TEXT | FK, UNIQUE, NOT NULL |
+| `total_quantity` | INTEGER | NOT NULL, >= 0 |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+这是当前运营库存，不是物理所有权历史。`available_quantity` 不单独保存，而是动态计算。
+
+V1 库存不足只显示警告，不强制阻止 Check-in。修改库存数量时，不得低于当前已占用数量，除非业务层明确处理该异常情况。
+
+---
+
+## 10. `orders`
+
+Order 是所有客户交易的唯一核心实体。系统不根据订单时间把订单分成 Reservation 或 Walk-in。
+
+| 字段 | 类型 | 约束/说明 |
+|---|---|---|
+| `id` | TEXT | PK, UUID |
+| `order_number` | TEXT | UNIQUE, NOT NULL |
+| `customer_id` | TEXT | FK, NOT NULL |
+| `customer_name` | TEXT | NULL，客户快照 |
+| `customer_gender` | TEXT | NULL，客户快照 |
+| `customer_wechat_nickname` | TEXT | NULL，客户快照 |
+| `customer_wechat_id` | TEXT | NULL，客户快照 |
+| `customer_phone` | TEXT | NULL，客户快照 |
+| `start_at` | TEXT | NOT NULL, UTC |
+| `end_at` | TEXT | NOT NULL, UTC |
+| `adult_count` | INTEGER | NOT NULL, >= 0 |
+| `child_count` | INTEGER | NOT NULL, >= 0 |
+| `note` | TEXT | NULL |
+| `status` | TEXT | NOT NULL, default `active` |
+| `created_at` | TEXT | NOT NULL, UTC |
+| `updated_at` | TEXT | NOT NULL, UTC |
+| `check_in_at` | TEXT | NULL，当前 Check-in 时间 |
+| `check_in_by_user_id` | TEXT | FK, NULL |
+| `auto_return_after_minutes` | INTEGER | NULL，Check-in 时的配置快照 |
+| `auto_return_at` | TEXT | NULL，Auto Return 时间/标记 |
+| `auto_return_occurred` | INTEGER | NOT NULL, default 0 |
+| `return_at` | TEXT | NULL，当前有效 Return 时间 |
+| `return_by_user_id` | TEXT | FK, NULL |
+| `daily_forced_return_occurred` | INTEGER | NOT NULL, default 0 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+
+允许的 `status`：
+
 - `active`
 - `cancelled`
 - `no_show`
 - `completed`
 
-These must NOT become status values:
-- checked_in
-- returned
-- auto_returned
-- reserved
-- walk_in
-- using
-- pending_payment
+时间和操作规则：
 
-They are represented by fields, derived conditions, or future UI concepts.
+- `end_at = start_at + 2 hours`，不能单独编辑 `end_at`。
+- Check-in、Return 的业务日期按照 `Asia/Shanghai` 判断。
+- 过去日期和未来日期的订单不允许 Check-in 或 Return；当天订单在其他规则允许时才可以操作。
+- Check-in 和 Return 的时间由服务器在操作发生时取得，操作员不能手动输入时间。
+- Check-in 必须不早于 `start_at`。
+- Check-in 后 Return 必须晚于 Check-in。
+- 没有 Check-in 的直接 Return 必须至少晚于 `start_at` 一分钟。
+- `status` 只能使用规定的四种生命周期状态；`checked_in`、`returned`、`auto_returned`、`using` 等不是 status 值。
+- 订单客户资料快照不能因 Customer 后续修改而被静默改写。
 
----
+Check-in 状态由 `check_in_at` 和 `check_in_by_user_id` 一起表示。Return 状态由 `return_at` 和 `return_by_user_id` 一起表示。
 
-# 21. Deletion and Historical Integrity
+Auto Return 约束：
 
-Historical business data must be preserved.
+- Check-in 时保存 `auto_return_after_minutes` 快照。
+- Auto Return 到期后释放库存并将订单完成，使用 System User。
+- `auto_return_occurred = 0` 时，`auto_return_at` 应为 NULL。
+- `auto_return_occurred = 1` 时，`auto_return_at` 应有值。
+- 人工 Return 修正是原子业务操作；不增加客户实际使用字段。
 
-When an EquipmentSpec or SaleItem is no longer offered:
-- set `is_active = 0`
-- retain historical references
+Daily Forced Return 约束：
 
-Orders, OrderItems, Payments, PaymentItems, and historical actor references must not be deleted merely to bypass business state rules.
-
-Broad cascading deletes must not erase historical business data.
-
----
-
-# 22. Database Constraints vs Business Validation
-
-## Prefer database-level constraints for:
-- primary keys
-- foreign keys
-- unique order number
-- unique username
-- unique phone/WeChat ID when present
-- unique boat number
-- unique EquipmentSpec name within EquipmentType
-- non-negative standard prices
-- positive OrderItem quantity
-- valid enum/status values where practical
-- basic structural relationships
-
-## Prefer business-layer validation for:
-- adult/child composition
-- same-business-date Check-in
-- Return timing
-- status transitions
-- inventory shortage warnings
-- OrderItem locking
-- Auto Return scheduling
-- Daily Forced Return eligibility
-- customer matching
-- direct Return without Check-in
+- 每天 `23:59:01–23:59:59`（Asia/Shanghai）处理仍 Check-in 且没有有效 Return 的订单。
+- 使用 System User、释放库存、完成订单，并设置 `daily_forced_return_occurred`。
+- 它与 Auto Return 独立，不能被解释为客户实际使用结束的精确事实。
 
 ---
 
-# 23. V1 Entities Explicitly Excluded
+## 11. `order_items`
 
-Do not introduce these tables merely because they are common in other rental systems:
+保存订单中的普通收费项目。每条记录必须引用一个 EquipmentSpec 或一个 SaleItem，不能同时引用或都不引用。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `order_id` | TEXT | FK, NOT NULL |
+| `equipment_spec_id` | TEXT | FK, NULL |
+| `sale_item_id` | TEXT | FK, NULL |
+| `quantity` | INTEGER | NOT NULL, >= 1 |
+| `unit_price` | INTEGER | NOT NULL, >= 0 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+关键约束：
 
 ```text
-reservations
-reservation_items
-walk_ins
-actual_usages
-actual_usage_items
-check_ins
-returns
-return_items
-order_types
+exactly one of equipment_spec_id and sale_item_id is non-NULL
 ```
 
-Their required concepts are already represented by the V1 model.
+`unit_price` 在创建时从当前目录价格复制，之后作为历史价格快照。行金额为 `quantity × unit_price`，不需要单独保存 `amount`。引用 EquipmentSpec 的 OrderItem 才会参与库存占用。有效 Check-in 后 OrderItems 锁定；取消 Check-in 后，满足条件时才可再次编辑。
 
 ---
 
-# 24. Future Evolution
+## 12. `payments`
 
-Future features may add capabilities such as:
-- richer BoatAssignment workflow
-- inventory adjustment history
-- audit log
-- roles and permissions
-- online customer booking
-- multi-store
-- richer payment features
-- customer merge/history
-- cloud deployment
+Payment 是与订单关联的金额计算容器。
 
-Future additions must preserve the historical meaning of existing V1 Orders and OrderItems.
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `order_id` | TEXT | FK, UNIQUE, NOT NULL |
+
+V1 不保存：
+
+- 是否已付款/未付款的状态；
+- 支付方式；
+- 支付渠道；
+- 独立且不可验证的权威 `total_amount`；
+- 重复的设备收费明细。
+
+V1 必须能够查询 Payment 的最终金额，用于运营统计和后续数据分析。最终金额由明细计算：
+
+```text
+final_amount = SUM(OrderItem.quantity × OrderItem.unit_price)
+             + SUM(PaymentItem.amount)
+```
+
+实现可以动态计算，也可以保存一个可重建的缓存金额；缓存不能取代明细作为权威数据。
 
 ---
 
-# 25. Implementation Independence
+## 13. `payment_items`
 
-This document defines the logical data model, not a mandatory code folder structure or ORM.
+保存 Payment 的人工调整明细，例如折扣、附加费用、退款或更正。
 
-The eventual open-source base may use:
-- a different ORM
-- different frontend libraries
-- different internal module names
-- different code organization
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `payment_id` | TEXT | FK, NOT NULL |
+| `type` | TEXT | NOT NULL，V1 主要为 `other` |
+| `item_name` | TEXT | NOT NULL |
+| `quantity` | INTEGER | NOT NULL, != 0 |
+| `unit_price` | INTEGER | NOT NULL, >= 0 |
+| `amount` | INTEGER | NOT NULL, != 0 |
+| `note` | TEXT | 人工调整必填 |
+| `created_by_user_id` | TEXT | FK, NOT NULL |
+| `created_at` | TEXT | NOT NULL |
 
-Those implementation details may be adapted.
+约束：
 
-However, adopting an existing project must not automatically introduce Reservation, ActualUsage, CheckIn, Return, or OrderType entities simply because the base project uses them.
+- `amount = quantity × unit_price`。
+- 正数表示增加金额，负数表示退款或扣减。
+- PaymentItem 创建后不可修改。
+- 更正通过新增 PaymentItem 实现。
+- Payment adjustment 在订单 completed、cancelled 或 no-show 后仍可以添加。
 
-The persistent business meaning defined here must remain intact unless the business model is explicitly changed.
+---
+
+## 14. `settings`
+
+保存真正的系统级设置，不使用一个无法约束的巨大 JSON 配置表。
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | TEXT | PK, NOT NULL |
+| `auto_return_after_minutes` | INTEGER | NOT NULL, default 120, >= 1 |
+| `updated_by_user_id` | TEXT | FK, NOT NULL |
+| `updated_at` | TEXT | NOT NULL |
+
+V1 不再需要 `boat_management_enabled`。EquipmentSpec、SaleItem、库存数量、固定订单时长和 Daily Forced Return 时间不属于此表。
+
+---
+
+## 15. 关系
+
+- `customers 1 : N orders`
+- `equipment_types 1 : N equipment_specs`
+- `equipment_specs 1 : 1 inventory_configurations`
+- `orders 1 : N order_items`
+- `equipment_specs 1 : N order_items`
+- `sale_items 1 : N order_items`
+- `orders 1 : 0..1 payments`
+- `payments 1 : N payment_items`
+- `users 1 : N` 各类创建、更新及操作人字段
+
+---
+
+## 16. 库存计算
+
+对于某个 EquipmentSpec：
+
+```text
+occupied_quantity = SUM(OrderItem.quantity)
+```
+
+只统计同时满足以下条件的 OrderItem：
+
+1. 引用了该 EquipmentSpec；
+2. 所属订单有有效 Check-in；
+3. 所属订单没有有效 Return。
+
+然后：
+
+```text
+available_quantity = total_quantity - occupied_quantity
+```
+
+未来订单不会提前占用库存。取消 Check-in 或产生有效 Return 后，该订单不再计入占用。库存不足可以产生警告，但不阻止 V1 Check-in。
+
+---
+
+## 17. 删除和历史完整性
+
+EquipmentSpec 或 SaleItem 不再提供时，应设置 `is_active = 0`，不能为了从当前目录移除它而删除历史引用。
+
+Orders、OrderItems、Payments、PaymentItems 及历史操作人引用不能为了绕过业务状态规则而删除。数据库外键、唯一约束、基本 CHECK 约束和业务层校验应共同保证数据完整性。
+
+---
+
+## 18. V2 方向
+
+未来可以增加：
+
+- Boat 和 BoatAssignment；
+- 库存调整历史；
+- audit log；
+- roles 和 permissions；
+- 客户在线预订；
+- 多门店；
+- 更丰富的 Payment 功能；
+- 客户合并和历史；
+- 云端部署。
+
+这些功能必须保持现有 V1 Order、OrderItem、Payment 明细的历史含义不变。
+
+---
+
+## 19. Implementation Independence
+
+本文档定义逻辑数据模型，不强制规定编程语言、ORM、前端框架或代码目录。采用开源基座时可以适配其内部实现，但不得仅因为基座包含这些概念，就自动引入 Reservation、ActualUsage、Check-in、Return、OrderType、Boat 或 BoatAssignment 实体。

@@ -14,12 +14,14 @@ from app.db.seed import seed_system_data
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Startup order is intentional: models/tables first, seed data second.
     initialize_database()
     seed_system_data()
     yield
 
 
 app = FastAPI(title="Rental App API", version="0.1.0", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +43,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/health/database")
-def database_health() -> dict[str, bool | str]:
+def database_health() -> dict[str, str]:
     connected = check_database_connection()
     return {
         "status": "ok" if connected else "error",

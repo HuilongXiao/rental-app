@@ -16,8 +16,8 @@ from app.models.user import User
 def seed_system_data() -> None:
     db: Session = SessionLocal()
     try:
-        existing_admin = db.query(User).filter(User.username == INITIAL_ADMIN_USERNAME).first()
-        if existing_admin is None:
+        admin_exists = db.query(User).filter(User.username == INITIAL_ADMIN_USERNAME).first()
+        if admin_exists is None:
             db.add(
                 User(
                     id=str(uuid4()),
@@ -29,8 +29,8 @@ def seed_system_data() -> None:
                 )
             )
 
-        existing_guest = db.query(Customer).filter(Customer.name == "游客").first()
-        if existing_guest is None:
+        guest_exists = db.query(Customer).filter(Customer.name == "游客").first()
+        if guest_exists is None:
             db.add(
                 Customer(
                     id=str(uuid4()),
@@ -68,13 +68,13 @@ def seed_system_data() -> None:
                 ]
             )
 
-        settings = {
+        default_settings = {
             "auto_return_after_minutes": "120",
             "business_timezone": "Asia/Shanghai",
             "daily_forced_return_start": "23:59:01",
             "daily_forced_return_end": "23:59:59",
         }
-        for key, value in settings.items():
+        for key, value in default_settings.items():
             if db.query(Setting).filter(Setting.key == key).first() is None:
                 db.add(Setting(id=str(uuid4()), key=key, value=value))
 

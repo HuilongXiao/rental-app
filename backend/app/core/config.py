@@ -15,3 +15,4 @@ if DATABASE_URL.startswith("sqlite"):
 INITIAL_ADMIN_USERNAME = os.getenv("INITIAL_ADMIN_USERNAME", "admin")
 INITIAL_ADMIN_PASSWORD = os.getenv("INITIAL_ADMIN_PASSWORD", "admin123")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-in-production")
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"

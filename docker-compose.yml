@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////app/data/rental_app.db
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"

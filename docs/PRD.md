@@ -1,82 +1,42 @@
-# PRD.md
+# Rental App — 产品需求文档（PRD）
 
-# Rental App — Product Requirements Document
+## 1. 产品概述
 
-## 1. Product Overview
+Rental App 是供皮划艇、桨板等水上器材租赁业务内部操作员使用的 Web 管理系统。V1 预计供 2–5 名工作人员使用，不提供客户自助预订。
 
-Rental App is an internal web application for managing day-to-day rental operations for a kayak and paddleboard business.
+V1 的核心目标是让操作员能够完成：
 
-The V1 product is designed for operators/managers, not end customers.
+```text
+登录 → 客户 → Order → Check-in → 库存占用 → Return → Payment
+```
 
-The primary objective of V1 is simple:
+系统需要在日常运营中替代核心 Excel 或纸面记录。
 
-> Allow an operator to create and manage real Orders from start to finish while keeping customer information, equipment usage, inventory, return, and payment information consistent.
+## 2. 产品原则
 
-The system should be practical enough to use during normal daily operations.
+- 一次交易只有一个 `Order`。
+- Reservation 和 Walk-in 只是自然语言描述，不是订单类型或独立实体。
+- 后端是业务规则的最终权威，前端校验不能替代后端校验。
+- 优先保证日常操作简单、数据一致和容易恢复。
+- V1 不因为其他租赁软件常见某项功能就引入额外实体或流程。
 
----
+## 3. 用户和权限
 
-## 2. Product Principles
+V1 用户是内部操作员/管理人员。
 
-### 2.1 One transaction, one Order
+用户可以：
 
-The system uses one central business object: Order.
+- 登录；
+- 创建和编辑 Customer；
+- 创建、查询、编辑和处理 Order；
+- 管理 EquipmentSpec、SaleItem 和运营库存；
+- 执行 Check-in、Return 和允许的修正；
+- 查看和调整 Payment 金额明细；
+- 查看 Dashboard 和运营信息。
 
-“Reservation” and “Walk-in” are business descriptions only.
+V1 不实现角色权限矩阵。所有正常登录用户拥有相同功能权限。System User 只用于自动操作，不能普通登录。
 
-The UI may use natural-language wording where useful, but the backend does not create different Order types based on whether the selected start time is in the future or the current time.
-
-### 2.2 Operational simplicity
-
-V1 should prioritize:
-
-- fast order creation
-- clear current status
-- reliable inventory calculation
-- simple customer matching
-- simple check-in and return
-- simple payment handling
-
-V1 should avoid unnecessary workflows and duplicate data entry.
-
-### 2.3 Real-world usability over feature count
-
-The V1 product is considered successful when an operator can use it during actual daily rental operations without needing spreadsheets or parallel manual tracking for the core workflow.
-
----
-
-## 3. Target Users
-
-### 3.1 Operator / Manager
-
-The V1 user is an internal operator or manager.
-
-The user can:
-
-- log in
-- create and edit customers
-- create and edit Orders
-- manage equipment catalog
-- manage operational inventory
-- manage boats
-- perform Check-in
-- perform Return
-- manage payment adjustments
-- view operational information
-
-### 3.2 Permissions
-
-V1 has no role/permission matrix.
-
-All normal authenticated users have the same functional permissions.
-
-User accounts exist primarily to identify the person performing business-changing actions.
-
----
-
-## 4. V1 Functional Modules
-
-V1 consists of:
+## 4. V1 功能模块
 
 1. Login
 2. Dashboard
@@ -87,861 +47,261 @@ V1 consists of:
 7. Payment
 8. Equipment Management
 9. Inventory Management
-10. Boat Management
-11. Settings
-12. Basic Backup / Restore, if implementation time permits
+10. Settings
+11. 基础 Backup / Restore（如果不会明显延迟核心功能）
 
-The detailed business rules for these modules are defined in `BUSINESS_RULES.md`.
+V1 不包含 Boat 和 BoatAssignment。
 
----
+## 5. Login
 
-# 5. Login
+登录页面需要：
 
-## 5.1 Goal
+- username；
+- password；
+- 登录按钮；
+- 登录失败提示。
 
-Provide basic access control for the internal application.
+inactive 用户不能登录。密码必须以安全 hash 保存，不能保存明文。
 
-## 5.2 Requirements
+V1 不需要：角色、复杂权限、SSO、微信登录、短信登录、客户账号、密码找回流程。
 
-The login page provides:
+## 6. Dashboard
 
-- username
-- password
-- login action
-- login failure feedback
+Dashboard 优先显示当天运营信息：
 
-Authenticated users can access the application.
+- 今天的订单；
+- active、checked-in、completed 订单数量；
+- 需要操作员关注的订单；
+- 各 EquipmentSpec 的运营库存、已占用数量和可用数量；
+- Auto Return 或 Daily Forced Return 相关提示；
+- 当天 Payment 金额汇总（如果实现不会增加不必要复杂度）。
 
-Inactive users cannot log in.
+V1 不需要预测、利润分析、客户生命周期、复杂 BI 或 AI 推荐。
 
-The System User is not a normal login account.
+## 7. Customer Management
 
-## 5.3 V1 scope
+Customer 页面支持：
 
-V1 does not require:
+- 搜索 Customer；
+- 查看和编辑 Customer；
+- 创建 Customer；
+- 从 Customer 开始创建 Order。
 
-- roles
-- permissions
-- SSO
-- WeChat login
-- SMS login
-- customer accounts
-- password reset workflow
+支持字段：name、gender、WeChat nickname、WeChat ID、phone。独立 Customer 必须满足 `name + phone` 或 `wechat_nickname + wechat_id`。
 
----
+搜索采用简单候选搜索，由操作员确认最终 Customer。不需要模糊匹配、拼音匹配、AI 匹配或自动合并。
 
-# 6. Dashboard
+创建 Order 时保存 Customer 快照，后续 Customer 资料变化不能静默修改历史 Order 快照。
 
-## 6.1 Goal
+## 8. Order Management
 
-Provide a quick view of the current operational situation.
+### 8.1 创建 Order
 
-The Dashboard should prioritize information that helps the operator run the business today.
+操作员可以选择或填写：
 
-## 6.2 V1 information
+- existing Customer、new Customer 或系统客户“游客”；
+- start date；
+- start time；
+- adults；
+- children；
+- 一个或多个 OrderItem；
+- note。
 
-The Dashboard should provide basic information such as:
-
-- today's Orders
-- active Orders
-- Orders checked in
-- Orders currently using equipment
-- Orders completed
-- Orders requiring operator attention
-- current available inventory for important equipment
-
-The exact visual layout can be determined after selecting the project base.
-
-## 6.3 V1 limitation
-
-The Dashboard does not need advanced analytics.
-
-V1 does not require:
-
-- forecasting
-- profit analysis
-- customer lifetime value
-- utilization forecasting
-- AI recommendations
-- complex BI dashboards
-
----
-
-# 7. Customer Management
-
-## 7.1 Goal
-
-Allow operators to maintain reusable customer records and quickly identify returning customers.
-
-## 7.2 Customer information
-
-The UI should support:
-
-- name
-- gender
-- WeChat nickname
-- WeChat ID
-- phone
-
-The system also maintains the Customer's unique ID.
-
-## 7.3 Creating a Customer
-
-A standalone Customer must satisfy one of:
-
-- name + phone
-- WeChat nickname + WeChat ID
-
-The UI should prevent obviously incomplete Customer records.
-
-## 7.4 Customer matching
-
-When the operator enters one of the customer identity fields, the application should be able to search for possible existing customers using:
-
-- name
-- WeChat nickname
-- WeChat ID
-- phone
-
-The operator confirms the intended customer.
-
-V1 uses simple candidate search.
-
-It does not require:
-
-- fuzzy matching
-- pinyin matching
-- AI matching
-- automatic merge
-- ranking/scoring
-
-## 7.5 Order customer snapshot
-
-When an Order is created, relevant Customer information is also stored on the Order as a historical snapshot.
-
-Later Customer profile changes must not silently rewrite historical Order snapshots.
-
-## 7.6 Customer list
-
-The Customer page should allow operators to:
-
-- search customers
-- open a customer profile
-- view basic customer information
-- create a customer
-- edit a customer
-- start creating an Order for a customer
-
-The exact list/filter UI can be determined during implementation.
-
----
-
-# 8. Order Management
-
-## 8.1 Goal
-
-Order Management is the central V1 workflow.
-
-The operator must be able to create, view, edit, cancel, restore, and complete Orders.
-
-## 8.2 Creating an Order
-
-The operator should be able to enter/select:
-
-### Customer
-
-- existing Customer
-- new Customer
-- System Customer “游客” where appropriate
-
-### Time
-
-- start date
-- start time
-
-The system automatically calculates:
-
-`end_at = start_at + 2 hours`
-
-The operator does not independently edit end time in V1.
-
-### People
-
-- adults
-- children
-
-The UI may initialize people counts based on selected equipment, but manually entered values must not later be silently overwritten.
-
-### Items
-
-The operator can add one or more OrderItems.
-
-OrderItems can represent:
-
-- rentable equipment
-- additional chargeable SaleItems
-
-For each item, the operator selects:
-
-- item/specification
-- quantity
-
-The system obtains the current catalog price and stores it as the OrderItem unit-price snapshot.
-
-### Note
-
-The operator can add a free-text note.
-
-## 8.3 Order creation does not classify Reservation vs Walk-in
-
-The application must not ask the operator to select:
-
-- Reservation
-- Walk-in
-
-The operator simply creates an Order and selects its start time.
-
-The system must not create different Order types or processing paths from the selected time.
-
-## 8.4 Order editing
-
-Before Check-in, the operator can:
-
-- edit customer information/reference
-- edit start time
-- edit people counts
-- add/remove OrderItems
-- change quantities
-- change applicable equipment/specification
-- edit notes
-
-Unit prices of existing OrderItems are not manually editable.
-
-After Check-in, OrderItems are locked.
-
-## 8.5 Order status
-
-V1 supports:
-
-- Active
-- Cancelled
-- No-show
-- Completed
-
-The UI should make the current status visually clear.
-
-Terminal Orders are not normally editable.
-
-To modify a terminal Order, the operator must restore it to Active where permitted.
-
-## 8.6 Order search and list
-
-The Order page should support practical operational search/filtering.
-
-At minimum, operators should be able to work with:
-
-- order date
-- order number
-- customer
-- status
-
-The exact filter set can be refined during implementation.
-
-The Order list should make it easy to find today's Orders and Orders requiring action.
-
----
-
-# 9. Equipment Selection and Capacity Validation
-
-## 9.1 Equipment types
-
-The system supports configurable EquipmentTypes.
-
-Examples:
-
-- Kayak
-- Paddleboard
-
-## 9.2 Equipment specifications
-
-The system supports configurable EquipmentSpecs.
-
-Examples:
-
-- Racing Kayak 3-seat
-- Racing Kayak 2-seat
-- Racing Kayak 1-seat
-- Leisure Kayak 3-seat
-- Leisure Kayak 2-seat
-- Paddleboard
-
-Equipment specifications are managed in Settings.
-
-## 9.3 Initial standard prices
-
-V1 initial catalog:
-
-- Racing kayak: ¥150
-- Paddleboard: ¥150
-- Leisure kayak: ¥90
-
-Prices are configurable in Settings.
-
-Historical OrderItems retain their original unit-price snapshots.
-
-## 9.4 Capacity validation
-
-The system must validate adult/child counts against the selected equipment.
-
-The core rules are defined in `BUSINESS_RULES.md`.
-
-The application should prevent clearly invalid combinations before the Order can be saved.
-
----
-
-# 10. Check-in
-
-## 10.1 Goal
-
-Record that the customer has actually started using the rented equipment.
-
-## 10.2 UI
-
-For an eligible active Order, the operator can press:
-
-**Check-in**
-
-The system records:
-
-- current timestamp
-- current operator
-
-## 10.3 Effects
-
-Successful Check-in:
-
-- locks OrderItems
-- makes OrderItem quantities count against operational inventory
-- starts the Auto Return cycle
-- allows BoatAssignment if the feature is enabled/used
-
-## 10.4 Restrictions
-
-Check-in must follow the business rules in `BUSINESS_RULES.md`.
-
-In particular:
-
-- Check-in uses current system time.
-- Manual Check-in is restricted to the Order's Asia/Shanghai calendar date.
-- An effective Return prevents Check-in changes until Return is handled.
-
-## 10.5 Cancel Check-in
-
-The operator can cancel the current Check-in when permitted.
-
-Cancelling Check-in:
-
-- clears Check-in fields
-- releases inventory occupation
-- unlocks OrderItems
-- clears the current Auto Return cycle
-
----
-
-# 11. Return
-
-## 11.1 Goal
-
-Record the end of the current business activity and release inventory when inventory was actually occupied.
-
-## 11.2 Manual Return after Check-in
-
-For an Order with an effective Check-in, the operator can press:
-
-**Return**
-
-The system:
-
-- records current Return time
-- records the operator
-- marks the Order Completed
-- releases inventory
-
-## 11.3 Direct Return without Check-in
-
-The UI should also allow Return for an active Order that has no Check-in, subject to business rules.
-
-This is useful when the operator knows that the business activity has ended but Check-in was forgotten.
-
-Direct Return without Check-in:
-
-- marks the Order Completed
-- records Return
-- does not create inventory release because no inventory was occupied
-
-## 11.4 Return cancellation
-
-When permitted, the operator can cancel the current effective Return.
-
-The exact transition rules are defined in `BUSINESS_RULES.md`.
-
-## 11.5 Return and OrderItems
-
-Once an effective Return exists, OrderItems remain locked.
-
----
-
-# 12. Auto Return
-
-## 12.1 Goal
-
-Prevent forgotten Returns from leaving inventory occupied indefinitely.
-
-## 12.2 Configuration
-
-Settings contains:
-
-`auto_return_after_minutes`
-
-Default:
-
-`120`
-
-Minimum:
-
-`1`
-
-## 12.3 Check-in snapshot
-
-At Check-in, the current Auto Return setting is copied to the Order.
-
-Later Settings changes do not affect the current Check-in cycle.
-
-## 12.4 Automatic operation
-
-If an eligible Order reaches its Auto Return time without an effective Return:
-
-- the system creates the Return
-- records the System User as actor
-- releases inventory
-- marks the Order Completed
-
-The system also records the Auto Return information required by the business model.
-
----
-
-# 13. Daily Forced Return
-
-## 13.1 Goal
-
-Provide an end-of-day safety mechanism for Orders that remain checked in without Return.
-
-## 13.2 Schedule
-
-V1 uses the fixed Asia/Shanghai window:
-
-`23:59:01–23:59:59`
-
-## 13.3 Eligibility
-
-Orders with:
-
-- effective Check-in
-- no effective Return
-
-are eligible.
-
-## 13.4 Effects
-
-The system:
-
-- creates the current Return
-- uses the System User
-- releases inventory
-- marks the Order Completed
-- records that Daily Forced Return occurred
-
-Daily Forced Return is independent from the ordinary Auto Return flag.
-
----
-
-# 14. Inventory Management
-
-## 14.1 Goal
-
-Show and maintain current operational inventory.
-
-## 14.2 Operational inventory
-
-Inventory represents the quantity currently available for business operations, not necessarily the total physical ownership.
-
-Example:
-
-Physical boats: 20
-
-Boats currently loaned to another club: 5
-
-Operational inventory:
-
-15
-
-The operator may directly set the operational quantity to 15.
-
-V1 does not require recording the reason/history of the change.
-
-## 14.3 Available inventory
-
-Available inventory is calculated from:
-
-`operational inventory - currently occupied quantity`
-
-Occupied quantity comes from effective Check-in without effective Return.
-
-Future Orders do not reduce inventory.
-
-## 14.4 Inventory display
-
-The UI should show enough information for an operator to understand:
-
-- operational inventory
-- currently occupied quantity
-- available quantity
-
-## 14.5 Inventory shortage
-
-V1 may display a warning when inventory is insufficient.
-
-V1 does not require a hard reservation-style inventory block.
-
----
-
-# 15. Boat Management
-
-## 15.1 Goal
-
-Provide basic management of individually numbered boats.
-
-## 15.2 Boat information
-
-Each Boat has:
-
-- boat number
-- equipment specification
-- status
-
-Boat numbers are globally unique.
-
-## 15.3 Boat status
-
-V1 supports:
-
-- Available
-- Not Available
-
-Not Available boats cannot be newly assigned.
-
-## 15.4 BoatAssignment
-
-The backend/data model may support BoatAssignment.
-
-However:
-
-> BoatAssignment UI is intentionally outside the V1 primary workflow.
-
-V1 does not need an operator-facing boat assignment workflow.
-
-This allows the project to preserve the data model for later expansion without delaying the first usable release.
-
----
-
-# 16. Payment
-
-## 16.1 Goal
-
-Provide a simple way to see and adjust the financial amount associated with an Order.
-
-## 16.2 Payment display
-
-Payment should display the Order's current OrderItems directly.
-
-Example:
+系统自动计算：
 
 ```text
-2-seat Kayak       2 × ¥90 = ¥180
-Waterproof Bag     1 × ¥20 = ¥20
---------------------------------
-Order Items Total          ¥200
+end_at = start_at + 2 hours
 ```
 
-The operator should not re-select these items inside Payment.
+操作员不能独立编辑 `end_at`。OrderItem 可以是 EquipmentSpec 或 SaleItem。创建时复制当前目录价格作为 `unit_price` 快照。
 
-## 16.3 Other adjustments
+### 8.2 Order 编辑
 
-Payment provides an “Other” adjustment mechanism for:
+有效 Check-in 之前可以：
 
-- discounts
-- surcharges
-- refunds
-- corrections
-- other manual adjustments
+- 修改客户引用；
+- 修改 start time；
+- 修改成人/儿童人数；
+- 添加、删除和修改 OrderItem 数量；
+- 更换适用 EquipmentSpec 或 SaleItem；
+- 修改 note。
 
-Each adjustment should have a note explaining the reason.
+不能直接编辑已有 OrderItem 的历史 `unit_price`。Check-in 后 OrderItems 锁定；如需修改，必须在允许时取消 Check-in，再修改并重新 Check-in。有效 Return 后仍保持锁定。
 
-## 16.4 Amount calculation
+### 8.3 Status
 
-The current amount is calculated from:
+V1 只有：`active`、`cancelled`、`no_show`、`completed`。
 
-`OrderItem charges + Payment adjustment items`
+Terminal Order 默认不可编辑，允许的修改必须先恢复为 active。`checked_in`、`returned`、`auto_returned`、`using` 不是 Order status。
 
-No permanent `Order.total_amount` field is required.
+### 8.4 搜索和列表
 
-## 16.5 Payment status
+Order 页面至少支持按以下条件查询：
 
-V1 does not require a separate stored payment status field.
+- 订单业务日期；
+- order number；
+- Customer；
+- status。
 
-The UI may display the current payment state based on available payment data.
+列表应优先让操作员快速找到今天的订单和需要处理的订单。
 
-## 16.6 Payment after completion
+## 9. Check-in 和 Return 的日期规则
 
-Payment adjustments remain possible even when the Order is:
+业务时区为 `Asia/Shanghai`。
 
-- completed
-- cancelled
-- no-show
+- 过去日期订单：不显示 Check-in/Return 按钮，后端拒绝相关请求。
+- 当天订单：在其他业务规则允许时显示并允许操作。
+- 未来日期订单：不显示 Check-in/Return 按钮，后端拒绝相关请求。
 
-This prevents operational completion and later financial correction from being artificially coupled.
+Check-in 和 Return 的时间均由系统在按钮操作时自动取得，操作员不能输入时间。
 
----
+## 10. Check-in
 
-# 17. Settings
+当天且符合条件的 active Order 显示 Check-in 操作。
 
-## 17.1 Goal
+成功 Check-in 后：
 
-Provide one management area for configurable operational data.
+- 保存当前时间和操作员；
+- 锁定 OrderItems；
+- 使 EquipmentSpec OrderItems 占用库存；
+- 保存当前 Auto Return 配置快照；
+- 启动 Auto Return 周期。
 
-## 17.2 Settings should manage
+如果可用库存为 0 或预计变成负数，系统必须显示清晰警告，但 V1 不强制阻止 Check-in。操作员确认后仍可完成。
 
-### System settings
+取消 Check-in（在允许时）：
 
-- Auto Return duration
-- Boat management enabled/disabled
+- 清除当前 Check-in 字段；
+- 释放库存占用；
+- 清除当前 Auto Return 周期；
+- 恢复 OrderItems 可编辑状态。
 
-### Equipment
+## 11. Return
 
-- EquipmentType
-- EquipmentSpec
-- current standard price
-- capacity
-- active/inactive state
+当天订单在符合条件时显示 Return 操作。
 
-### Sale Items
+### 11.1 有 Check-in 的 Return
 
-- item name
-- current price
-- active/inactive state
+系统记录当前时间和操作员，将 Order 标记为 completed，并释放库存。
 
-### Inventory
+### 11.2 没有 Check-in 的直接 Return
 
-- operational inventory quantity per EquipmentSpec
+允许操作员对符合条件的 active Order 直接 Return：
 
-### Boats
+- 标记为 completed；
+- 记录 Return；
+- 不产生库存释放，因为此前没有库存占用；
+- Return 时间至少为 `start_at + 1 minute`。
 
-- boat records
-- boat numbers
-- boat status
+Return 不能对过去日期或未来日期订单执行。
 
-## 17.3 Fixed business rules
+### 11.3 Auto Return 后的人工修正
 
-The following are not ordinary Settings in V1:
+Auto Return 后，操作员可以执行允许的人工 Return 更新/修正。系统使用当前操作时间记录操作员的 Return，并按照业务规则更新 Auto Return 字段。这个操作必须保持订单和库存数据一致。
 
-- Order duration — fixed at 2 hours
-- Daily Forced Return time — fixed at 23:59:01–23:59:59
-- database timezone — UTC
-- business timezone — Asia/Shanghai
+V1 不设置“客户是否仍在使用设备”字段。
 
----
+## 12. Auto Return 和 Daily Forced Return
 
-# 18. Basic Backup / Restore
+### 12.1 Auto Return
 
-## 18.1 Goal
+Auto Return 是防止操作员忘记 Return 导致库存长期占用的保护机制，不表示客户一定在该时刻停止使用。
 
-Protect local operational data.
+Check-in 时复制 `auto_return_after_minutes`。到期且没有有效 Return 时，系统使用 System User 执行 Auto Return、释放库存并完成 Order。
 
-## 18.2 V1 scope
+### 12.2 Daily Forced Return
 
-If implementation time permits, V1 should provide a simple reliable backup/restore mechanism appropriate for the selected deployment architecture.
+Daily Forced Return 是防止跨午夜长期占用库存的技术安全机制。每天 Asia/Shanghai 的 `23:59:01–23:59:59` 处理仍有有效 Check-in 且无有效 Return 的订单：使用 System User、记录 Return、释放库存、完成 Order，并记录 Daily Forced Return 标记。
 
-The first implementation should prioritize:
+它与普通 Auto Return 独立，不代表客户实际停止使用的精确时刻。
 
-- database integrity
-- simple operator workflow
-- easy recovery
+## 13. Inventory
 
-V1 does not require:
+Inventory 页面显示：
 
-- cloud backup service
-- multi-location replication
-- versioned backup management
-- enterprise disaster recovery
+- operational inventory；
+- currently occupied quantity；
+- available quantity。
 
----
+```text
+available = operational inventory - currently occupied quantity
+```
 
-# 19. Basic Search and Operational Usability
+只有有效 Check-in 且无有效 Return 的 EquipmentSpec OrderItem 占用库存。未来 Order 不占用库存。V1 不要求库存调整历史，也不强制库存不足时阻止 Check-in。
 
-The application should prioritize fast daily operation.
+## 14. Payment
 
-Important actions should be easy to find:
+Payment 页面直接展示当前 OrderItems，不让���作员重新选择已经存在的项目。
 
-- create Order
-- search Order
-- Check-in
-- Return
-- edit Customer
-- view inventory
-- view current Orders
+最终金额为：
 
-The final navigation and UI layout will depend partly on the selected open-source project base.
+```text
+final_amount = SUM(OrderItem.quantity × OrderItem.unit_price)
+             + SUM(PaymentItem.amount)
+```
 
-The product requirements define the behavior, not a fixed visual design.
+Payment 必须能够显示和查询最终金额及 adjustment 明细，用于后续统计分析。
 
----
+V1 不记录：
 
-# 20. V1 Non-Goals
+- 是否已付款或未付款；
+- 支付方式；
+- 现金、微信、支付宝、银行卡等支付渠道。
 
-The following are explicitly not required for V1:
+Payment adjustment 可以是折扣、附加费、退款或更正，必须填写说明。PaymentItem 创建后不可修改，更正通过新增 adjustment 完成。completed、cancelled、no-show 订单仍可添加 adjustment。
 
-### Customer-facing functions
+## 15. Settings
 
-- customer self-service booking
-- customer account
-- online payment
-- WeChat authorization
-- WeChat mini program
-- customer notifications
+Settings 管理：
 
-### Advanced customer functions
+- Auto Return duration；
+- EquipmentType；
+- EquipmentSpec、价格、capacity、active 状态；
+- SaleItem、价格、active 状态；
+- 每种 EquipmentSpec 的 operational inventory。
 
-- AI customer matching
-- fuzzy/pinyin matching
-- automatic customer merge
-- customer segmentation
-- loyalty program
-- marketing automation
+以下规则固定，不作为普通 Settings：
 
-### Advanced rental functions
+- Order duration：2 hours；
+- Daily Forced Return：23:59:01–23:59:59；
+- database timezone：UTC；
+- business timezone：Asia/Shanghai。
 
-- Reservation entity
-- ReservationItem
-- Walk-in entity/type
-- Order type
-- ActualUsage entity
-- ActualUsageItem
-- Check-in entity
-- Return entity
-- ReturnItem
-- complex booking workflows
-- automatic boat assignment
-- BoatAssignment UI
-- overlap conflict engine
+## 16. Backup / Restore
 
-### Advanced financial functions
+如果实现，优先保证 SQLite 数据库完整性、简单操作和可恢复性。V1 不要求云备份、多地点复制、企业级灾难恢复或复杂版本管理。
 
-- complex payment allocation
-- accounting integration
-- invoice management
-- payment gateway integration
-- multi-currency
-- full accounting ledger
+## 17. V1 非目标
 
-### Advanced management functions
+- 客户自助预订、客户账号、在线支付、微信登录、小程序和通知；
+- Boat、BoatAssignment、具体船号管理；
+- Reservation、Walk-in、ActualUsage、独立 Check-in/Return 历史实体；
+- 角色权限、多门店、复杂会计、支付网关；
+- 预约冲突引擎、自动船只分配；
+- 库存调整历史、完整 audit log、高级 BI、预测和 AI 推荐。
 
-- roles and permissions
-- multi-store management
-- advanced audit log
-- inventory adjustment history
-- advanced BI
-- forecasting
-- AI recommendations
+## 18. V1 验收场景
 
----
+1. 创建未来 Order，未来订单不占用库存，也不显示 Check-in/Return。
+2. 创建当天 Order，可以在规则允许时 Check-in 和 Return。
+3. 过去日期 Order 不显示相关按钮，后端也拒绝请求。
+4. Check-in 使用系统当前时间，OrderItems 锁定，库存被占用。
+5. 库存不足时显示警告，但确认后 Check-in 成功。
+6. 有 Check-in 的人工 Return 释放库存并完成 Order。
+7. 没有 Check-in 的直接 Return 不改变库存。
+8. 忘记 Return 时 Auto Return 释放库存并完成 Order。
+9. 跨午夜订单由 Daily Forced Return 处理。
+10. Auto Return 后人工修正可以记录当前操作时间，不增加客户使用状态字段。
+11. Payment 显示 OrderItems、adjustment 明细和最终金额。
+12. Payment adjustment 在终止状态订单上仍可添加。
+13. V1 不包含 Boat 或 BoatAssignment。
 
-# 21. V1 Acceptance Criteria
+## 19. 产品边界
 
-V1 should be considered operationally usable when the following real-world scenarios work correctly.
+V1 应保持足够小，以便尽快在真实业务中使用。任何不直接服务于以下流程的新增实体、工作流或技术依赖，都应优先延期：
 
-## Scenario A — Future-time Order
+```text
+Login → Customer → Order → Check-in → Inventory → Return → Payment
+```
 
-1. Operator logs in.
-2. Operator selects or creates a Customer.
-3. Operator creates an Order with a future start time.
-4. Operator selects equipment/items.
-5. System calculates the two-hour end time.
-6. Order is saved as Active.
-7. The future Order does not reduce current operational inventory.
-
-## Scenario B — Immediate Order
-
-1. Operator creates an Order for a customer who has arrived without a prior booking.
-2. Operator selects the current time as the start time.
-3. System treats it exactly like any other Order.
-4. No Walk-in-specific entity or processing path is created.
-
-## Scenario C — Check-in and Return
-
-1. Operator opens an eligible active Order.
-2. Operator presses Check-in.
-3. Inventory becomes occupied.
-4. OrderItems become locked.
-5. Operator later presses Return.
-6. Order becomes Completed.
-7. Inventory becomes available again.
-
-## Scenario D — Direct Return without Check-in
-
-1. Operator has an active Order without Check-in.
-2. Operator confirms the activity has ended.
-3. Operator records Return.
-4. Order becomes Completed.
-5. Inventory does not change because there was no prior inventory occupation.
-
-## Scenario E — Forgotten Return
-
-1. Operator performs Check-in.
-2. Inventory becomes occupied.
-3. Operator forgets Return.
-4. Auto Return eventually occurs.
-5. Inventory is released.
-6. Order becomes Completed.
-
-## Scenario F — End-of-day safety
-
-1. An Order has Check-in.
-2. No effective Return exists.
-3. The normal Auto Return has not resolved the situation.
-4. Daily Forced Return runs at the end of the day.
-5. Inventory is released.
-6. Order becomes Completed.
-
-## Scenario G — Payment
-
-1. Order contains equipment/items.
-2. Payment page displays those existing OrderItems.
-3. Operator does not re-select them.
-4. Operator can add an Other adjustment.
-5. The final displayed amount reflects OrderItems plus adjustments.
-
----
-
-# 22. Product Boundary Principle
-
-The V1 product should remain small enough to become usable quickly.
-
-When a proposed feature is not necessary to complete the core workflow:
-
-`Login → Customer → Order → Check-in → Inventory → Return → Payment`
-
-it should normally be deferred until after real-world V1 usage identifies a concrete need.
-
-The product should not introduce a new entity, workflow, or technical dependency merely because that pattern is common in other rental-management systems.
-
-The business model in `BUSINESS_RULES.md` remains authoritative for detailed business constraints.
+详细业务约束以 `BUSINESS_RULES.md` 为准，数据结构以 `ER_MODEL.md` 为准，技术实现边界以 `ARCHITECTURE.md` 为准。

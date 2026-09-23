@@ -7,6 +7,8 @@ from app.core.config import INITIAL_ADMIN_PASSWORD, INITIAL_ADMIN_USERNAME
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.customer import Customer
+from app.models.equipment import EquipmentSpec, EquipmentType, SaleItem
+from app.models.inventory import InventoryConfiguration
 from app.models.settings import Setting
 from app.models.user import User
 
@@ -14,8 +16,8 @@ from app.models.user import User
 def seed_system_data() -> None:
     db: Session = SessionLocal()
     try:
-        admin_exists = db.query(User).filter(User.username == INITIAL_ADMIN_USERNAME).first()
-        if admin_exists is None:
+        existing_admin = db.query(User).filter(User.username == INITIAL_ADMIN_USERNAME).first()
+        if existing_admin is None:
             db.add(
                 User(
                     id=str(uuid4()),
@@ -27,8 +29,8 @@ def seed_system_data() -> None:
                 )
             )
 
-        guest_exists = db.query(Customer).filter(Customer.name == "游客").first()
-        if guest_exists is None:
+        existing_guest = db.query(Customer).filter(Customer.name == "游客").first()
+        if existing_guest is None:
             db.add(
                 Customer(
                     id=str(uuid4()),
@@ -40,13 +42,39 @@ def seed_system_data() -> None:
                 )
             )
 
-        default_settings = {
+        if db.query(EquipmentType).count() == 0:
+            type_lantern = EquipmentType(id=str(uuid4()), name="灯具")
+            type_tent = EquipmentType(id=str(uuid4()), name="帐篷")
+            db.add_all([type_lantern, type_tent])
+            db.flush()
+
+            db.add_all(
+                [
+                    EquipmentSpec(id=str(uuid4()), equipment_type_id=type_lantern.id, name="LED 灯组", price=2000, capacity=3, is_active=True),
+                    EquipmentSpec(id=str(uuid4()), equipment_type_id=type_tent.id, name="双人帐篷", price=5000, capacity=2, is_active=True),
+                ]
+            )
+            db.flush()
+
+            for item in db.query(EquipmentSpec).all():
+                if db.query(InventoryConfiguration).filter(InventoryConfiguration.equipment_spec_id == item.id).count() == 0:
+                    db.add(InventoryConfiguration(id=str(uuid4()), equipment_spec_id=item.id, total_quantity=3))
+
+        if db.query(SaleItem).count() == 0:
+            db.add_all(
+                [
+                    SaleItem(id=str(uuid4()), name="场地清洁服务", price=3000, is_active=True),
+                    SaleItem(id=str(uuid4()), name="外送服务", price=1500, is_active=True),
+                ]
+            )
+
+        settings = {
             "auto_return_after_minutes": "120",
             "business_timezone": "Asia/Shanghai",
             "daily_forced_return_start": "23:59:01",
             "daily_forced_return_end": "23:59:59",
         }
-        for key, value in default_settings.items():
+        for key, value in settings.items():
             if db.query(Setting).filter(Setting.key == key).first() is None:
                 db.add(Setting(id=str(uuid4()), key=key, value=value))
 

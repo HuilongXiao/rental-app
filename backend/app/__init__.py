@@ -1,18 +1,5 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.db.init_db import initialize_database
-from app.main import app as app_instance
-
-
-app = app_instance
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-initialize_database()
+from backend.app.api.auth import router as auth_router
+from backend.app.api.customers import router as customers_router
+from backend.app.api.inventory import router as inventory_router
+from backend.app.api.orders import router as orders_router
+from backend.app.api.payments import router as payments_router

@@ -7,6 +7,15 @@ from app.models.settings import Setting
 from app.models.user import User
 
 __all__ = [
-    "User", "Customer", "EquipmentType", "EquipmentSpec", "SaleItem",
-    "InventoryConfiguration", "Order", "OrderItem", "Payment", "PaymentItem", "Setting",
+    "User",
+    "Customer",
+    "EquipmentType",
+    "EquipmentSpec",
+    "SaleItem",
+    "InventoryConfiguration",
+    "Order",
+    "OrderItem",
+    "Payment",
+    "PaymentItem",
+    "Setting",
 ]

@@ -21,6 +21,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Rental App API", version="0.1.0", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,6 +29,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(auth_router)
 app.include_router(catalog_router)
 app.include_router(customers_router)
@@ -42,7 +44,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/health/database")
-def database_health() -> dict[str, bool | str]:
+def database_health() -> dict[str, str]:
     connected = check_database_connection()
     return {
         "status": "ok" if connected else "error",
